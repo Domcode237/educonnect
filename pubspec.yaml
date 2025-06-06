@@ -1,0 +1,66 @@
+name: educonnect
+description: "A new Flutter project."
+
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.7.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  firebase_core: ^3.13.1
+  firebase_auth: ^5.5.4
+  google_sign_in: ^6.3.0
+  firebase_ui_auth: ^1.16.1
+  provider: ^6.1.5
+  cloud_firestore: ^5.6.8
+  email_validator: ^2.1.17
+  async: ^2.12.0
+  intl: ^0.19.0
+  smooth_page_indicator: ^1.2.1
+  shared_preferences: ^2.5.3
+  awesome_dialog: ^3.2.1
+  uuid: ^4.5.1
+  fl_chart: ^1.0.0
+  image_picker: ^1.1.2
+  firebase_storage: ^12.4.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_native_splash: ^2.4.6
+  flutter_lints: ^5.0.0
+  get: ^4.7.2
+  font_awesome_flutter: ^10.5.0
+
+#flutter native splash
+flutter_native_splash:
+  color: "#FFFFFF"
+  color_dark: "#272727"
+  image: assets/images/logos/logo_noir.png
+  image_dark: assets/images/logos/logo_blanc.png
+  android_gravity: center
+  ios_content_mode: scaleAspectFit
+  fullscreen: true
+
+  android_12:
+    color: "#FFFFFF"
+    color_dark: "#272727"
+    image: assets/images/logos/logo_noir.png
+    image_dark: assets/images/logos/logo_blanc.png
+#flutter native splash
+
+flutter:
+
+  uses-material-design: true
+
+  assets:
+    - assets/images/logos/
+    - assets/images/carousel/
+    - assets/videos/
+
+ 
