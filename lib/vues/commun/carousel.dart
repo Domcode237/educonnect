@@ -1,36 +1,20 @@
-//importation de bivliotheques necessaires
 import 'package:flutter/material.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 
-//importation du fichier local contenant les texte
 import 'package:educonnect/coeur/constantes/textes.dart';
-
-//importation du fichier contenant les liens des images sur un format texte
 import 'package:educonnect/coeur/constantes/images.dart';
-
-//importation de la pages de connexion qui doit etrer apeler lors qu'on clique sur le bbouton "commencer"
 import 'package:educonnect/vues/commun/login.dart';
 
-//definir le widget principale qui est un carousel qui doit permetre de presenter l'application
-class Carousel extends StatefulWidget{
+class Carousel extends StatefulWidget {
   @override
-  State<Carousel> createState() {
-    return CarouselState();
-  }
+  State<Carousel> createState() => CarouselState();
 }
 
-//classe avec etat pour gerer l'etat du carousel
 class CarouselState extends State<Carousel> {
-
-  //definir un controleur de page
   final PageController _controleur = PageController();
-
-  //index de la pages
   int indexPageCourant = 0;
 
-  //definir une liste pour les element des diferentes pages(titre, sous-titre, image pour theme claire et sombre)
-  final List<Map<String, String>> Pages = 
-  [
+  final List<Map<String, String>> Pages = [
     {
       'title': TextesApp.carouselTitre1,
       'subtitle': TextesApp.carouselSousTitre1,
@@ -63,10 +47,8 @@ class CarouselState extends State<Carousel> {
     },
   ];
 
-  //methode qui doit permettree de naviger entre les pages du carousel
-  void pageSuivente()
-  {
-    if(indexPageCourant < Pages.length -1){
+  void pageSuivente() {
+    if (indexPageCourant < Pages.length - 1) {
       _controleur.nextPage(
         duration: const Duration(milliseconds: 500),
         curve: Curves.easeInOut,
@@ -74,33 +56,30 @@ class CarouselState extends State<Carousel> {
     }
   }
 
-  //passer directement a la dirniere page grace au bouton souter
-  void allerALaDernierePage()
-  {
-    _controleur.animateToPage(
-      Pages.length-1,
-      duration: const Duration(microseconds: 500), 
-      curve: Curves.easeInOut
-    );
-  }
-
-  //rediriger vers la pages de connexion apres le carousel
-  void allerALaPageDeConnexion()
-  {
+  void allerALaDernierePage() {
     Navigator.pushReplacement(
-      context, 
-      MaterialPageRoute(builder: (context) => LoginPage())
+      context,
+      MaterialPageRoute(builder: (context) => LoginPage()),
     );
   }
 
-  //construction de l'interface du carousel
+  void allerALaPageDeConnexion() {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => LoginPage()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    //recuperer le theme du systeme
     final theme = Theme.of(context);
 
     return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
+      backgroundColor: theme.brightness == Brightness.light
+    ? const Color.fromARGB(255, 255, 255, 255) // Blanc un peu gris
+    : theme.scaffoldBackgroundColor,
+
+     // backgroundColor: theme.scaffoldBackgroundColor,
       body: Stack(
         children: [
           PageView.builder(
@@ -109,67 +88,66 @@ class CarouselState extends State<Carousel> {
               indexPageCourant = index;
             }),
             itemCount: Pages.length,
-            itemBuilder: (context, index)
-            {
+            itemBuilder: (context, index) {
               return CarouselPageCard(page: Pages[index]);
-            }
+            },
           ),
 
-          //bouton placer en haut a droit
+          // Bouton en haut à droite
           Positioned(
             top: 40,
             right: 20,
             child: TextButton(
-              onPressed: allerALaDernierePage, 
-              child: Text("Passer"),
-            )  
+              onPressed: allerALaDernierePage,
+              child: const Text("Passer"),
+            ),
           ),
 
-          //indicateur de page en bas a gauche
+          // Indicateur en bas à gauche
           Positioned(
-            bottom: 30,
+            bottom: 38,
             left: 20,
-            child: CarouselIndicator
-            (
+            child: CarouselIndicator(
               currentPage: indexPageCourant,
               count: Pages.length,
-            )
+            ),
           ),
 
-          //bouton fleche ou commencer
-          // Flèche ou bouton "Commencer" en bas à droite selon la page actuelle
+          // Bouton flèche ou "Commencer"
           Positioned(
-            bottom: 20,
+            bottom: 30,
             right: 20,
             child: indexPageCourant == Pages.length - 1
                 ? ElevatedButton(
                     onPressed: allerALaPageDeConnexion,
                     style: theme.elevatedButtonTheme.style,
-                    child: const Text("Commencer"),
-                  )
-                : GestureDetector(
-                    onTap: pageSuivente,
-                    child: CircleAvatar(
-                      radius: 28,
-                      backgroundColor: theme.primaryColor,
-                      child: Icon(
-                        Icons.chevron_right,
-                        color: theme.brightness == Brightness.dark
-                            ? Colors.black
-                            : Colors.white,
-                      ),
+                    child: const Text(
+                      "Commencer",
+                      style: TextStyle(fontWeight: FontWeight.bold),
                     ),
-                  ),
-          )
-        ],
-      ),
-    );
-  }
-}
+                  )
+                : ElevatedButton(
+                      onPressed: pageSuivente,
+                      style: theme.elevatedButtonTheme.style?.copyWith(
+                        shape: MaterialStateProperty.all(
+                          RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(50), // Ajuste ici pour plus ou moins arrondi
+                          ),
+                        ),
+                        minimumSize: MaterialStateProperty.all(const Size(24, 40)),
 
-//composent de la page
-class CarouselPageCard extends StatelessWidget
-{
+                        //padding: MaterialStateProperty.all(const EdgeInsets.symmetric(horizontal: 5, vertical: 18)),
+                      ),
+                      child: const Icon(Icons.chevron_right,),
+                    )
+                  ),
+                ],
+              ),
+            );
+          }
+        }
+
+class CarouselPageCard extends StatelessWidget {
   final Map<String, String> page;
   const CarouselPageCard({required this.page});
 
@@ -178,16 +156,16 @@ class CarouselPageCard extends StatelessWidget
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    // Choisit l'image en fonction du thème
     final imagePath = isDark ? page['darkImage']! : page['lightImage']!;
 
-    // Style pour le titre
     final titleStyle = theme.textTheme.headlineMedium?.copyWith(
       fontWeight: FontWeight.bold,
+      color: theme.textTheme.headlineMedium?.color,
     );
-    // Style pour le sous-titre
+
     final subtitleStyle = theme.textTheme.bodyLarge?.copyWith(
       color: theme.textTheme.bodyLarge?.color?.withOpacity(0.8),
+      fontWeight: FontWeight.bold,
     );
 
     return LayoutBuilder(
@@ -217,7 +195,6 @@ class CarouselPageCard extends StatelessWidget
           ),
         );
 
-        // Rend le contenu scrollable sur petits écrans
         return constraints.maxHeight > minHeight
             ? Center(child: content)
             : SafeArea(child: SingleChildScrollView(child: content));
@@ -226,8 +203,6 @@ class CarouselPageCard extends StatelessWidget
   }
 }
 
-// === COMPOSANT DES INDICATEURS DE PAGE ===
-// Affiche les petits points d'indication (avec animation)
 class CarouselIndicator extends StatelessWidget {
   final int currentPage;
   final int count;

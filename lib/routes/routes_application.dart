@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:educonnect/vues/commun/carousel.dart';
 import 'package:educonnect/routes/noms_routes.dart';
 import 'package:educonnect/vues/commun/login.dart';
 import 'package:educonnect/vues/inscription/inscription.dart';
@@ -7,21 +8,41 @@ import 'package:educonnect/modules/superadmin/vues/home_super_admin.dart';
 import 'package:educonnect/modules/parent/vues/home_parent.dart';
 import 'package:educonnect/modules/enseignant/vues/home_enseignant.dart';
 import 'package:educonnect/modules/eleve/vues/home_eleve.dart';
-import 'package:educonnect/modules/admin/vues/home_admin.dart';
 import 'package:educonnect/modules/superadmin/vues/roles_page.dart';
 import 'package:educonnect/modules/superadmin/vues/ajout_role_vue.dart';
 import 'package:educonnect/modules/superadmin/vues/ajout_atablissement.dart';
 import 'package:educonnect/modules/superadmin/vues/ajout_administrateur_vue.dart';
-
+import 'package:educonnect/modules/admin/vues/ajouter_matiere.dart';
+import 'package:educonnect/modules/admin/vues/ajouter_classe.dart';
+import 'package:educonnect/modules/admin/vues/calsse_detail.dart';
+import 'package:educonnect/modules/admin/vues/home_admin.dart';
+import 'package:educonnect/modules/admin/vues/ajout_eleve.dart';
+import 'package:educonnect/modules/admin/vues/ajouter_eleve.dart';
+import 'package:educonnect/modules/admin/vues/ajouter_parent.dart';
 
 
 
 final Map<String, WidgetBuilder> routes = {
+  NomsRoutes.carousel: (context) =>  Carousel(),
   NomsRoutes.connexion: (context) => const LoginPage(),
   NomsRoutes.inscription: (context) => const Inscription(),
   NomsRoutes.accueil: (context) => const HomeSuperAdmin(),
   NomsRoutes.forgotPasseword: (context) => Forgotpassword(),
-  NomsRoutes.homeAdmin: (context) => HomeSuperAdmin(),
+  NomsRoutes.homeAdmin: (context) {
+    final route = ModalRoute.of(context);
+    if (route == null || route.settings.arguments == null) {
+      // Gérer le cas où il n'y a pas d'arguments, par ex. retourner une page d'erreur ou une page par défaut
+      return Scaffold(
+        body: Center(child: Text("Aucun identifiant d'établissement fourni")),
+      );
+    }
+    final args = route.settings.arguments as Map<String, dynamic>;
+    final etablissementId = args['etablissementId'] as String;
+    return HomeAdmin(monIdEtablissement: etablissementId);
+  },
+
+
+
   NomsRoutes.homeEnseignant: (context) => HomeEnseignant(),
   NomsRoutes.homeParent: (context) => HomeParent(),
   NomsRoutes.homeEleve: (context) => HomeEleve(),
@@ -29,6 +50,74 @@ final Map<String, WidgetBuilder> routes = {
   NomsRoutes.rolesPage: (context) => RolesPage(),
   NomsRoutes.ajoutRole : (context) => AjoutRoleVue(),
   NomsRoutes.ajoutetablissement : (context) => AjoutEtablissementVue(),
-  NomsRoutes.ajoutadministrateur : (context) => AjoutAdministrateurVue(roleAdministrateurId: "admin"),
-  
+  NomsRoutes.ajoutadministrateur : (context) => const AjoutAdministrateurVue(),
+  NomsRoutes.ajoutereleve : (context) => const AjoutEleveVue(),
+
+  //route pour ajouter un parent
+  NomsRoutes.ajouterparent: (context) {
+    final route = ModalRoute.of(context);
+    if (route == null || route.settings.arguments == null) {
+      return Scaffold(
+        body: Center(child: Text("Aucun identifiant d'établissement fourni")),
+      );
+    }
+    final idEtab = route.settings.arguments as String;
+    return AjouterParentPage(etablissementId: idEtab);
+  },
+
+  //route pour ajouter une matiere
+  NomsRoutes.ajoutmatiere: (context) {
+  final route = ModalRoute.of(context);
+    if (route == null || route.settings.arguments == null) {
+      return Scaffold(
+        body: Center(child: Text("Aucun identifiant d'établissement fourni")),
+      );
+    }
+    final idEtab = route.settings.arguments as String;
+    return AjoutMatiereVue(etablissementId: idEtab);
+  },
+
+  NomsRoutes.ajoutclasse: (context) {
+    final route = ModalRoute.of(context);
+    if (route == null || route.settings.arguments == null) {
+      return Scaffold(
+        body: Center(child: Text("Aucun identifiant d'établissement fourni")),
+      );
+    }
+    final idEtab = route.settings.arguments as String;
+    return AjouterClassePage(etablissementId: idEtab);
+  },
+  NomsRoutes.classedetail : (context) {
+    final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+    final id = args['id'] as String;
+    return ClasseDetailPage(classeId: id);
+  },
+
+  NomsRoutes.ajouteleve: (context) {
+  final route = ModalRoute.of(context);
+  if (route == null || route.settings.arguments == null) {
+    return const Scaffold(
+      body: Center(child: Text("Aucun identifiant de classe fourni")),
+    );
+  }
+
+  final args = route.settings.arguments as Map<String, dynamic>;
+
+  // Vérifions qu'on a bien les deux identifiants
+  final classeId = args['classeId'] as String?;
+  final etablissementId = args['etablissementId'] as String?;
+
+  if (classeId == null || etablissementId == null) {
+    return const Scaffold(
+      body: Center(child: Text("Identifiants manquants")),
+    );
+  }
+
+  return AjouterElevesClassePage(
+    classeId: classeId,
+
+  );
+},
+
+
 };

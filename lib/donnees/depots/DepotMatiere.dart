@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:educonnect/donnees/modeles/matiere_modele.dart';
+import 'package:educonnect/donnees/modeles/MatiereModele.dart';
 
 class DepotMatiere {
   final _db = FirebaseFirestore.instance;

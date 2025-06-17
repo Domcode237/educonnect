@@ -5,7 +5,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:educonnect/modules/superadmin/vues/roles_page.dart';
 import 'package:educonnect/modules/superadmin/vues/etablissements_page.dart';
 import 'package:educonnect/modules/superadmin/vues/page_administrateur.dart';
-
+import 'package:educonnect/modules/superadmin/vues/page_utilisateur.dart';
+import 'package:educonnect/modules/superadmin/vues/page_paramettre.dart';
+import 'package:educonnect/vues/commun/deconnexion.dart';
 class HomeSuperAdmin extends StatefulWidget {
   const HomeSuperAdmin({super.key});
 
@@ -124,12 +126,7 @@ class _SuperAdminPageState extends State<HomeSuperAdmin> {
       case "Administrateurs":
         return const ListeAdministrateurs();
       case "Utilisateurs":
-        return Center(
-          child: Text(
-            "Page Utilisateurs non encore implémentée",
-            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-          ),
-        );
+        return const ListeUtilisateurs();
       default:
         return Center(
           child: Text(
@@ -304,9 +301,21 @@ class _SuperAdminPageState extends State<HomeSuperAdmin> {
       appBar: AppBar(
         title: Text(_pageTitles[_selectedIndex]),
         actions: [
-          IconButton(icon: const Icon(Icons.settings), onPressed: () {}),
-          IconButton(icon: const Icon(Icons.notifications), onPressed: () {}),
-          IconButton(icon: const Icon(Icons.logout), onPressed: () {}),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => ParametresPage()),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () {
+              logoutUser(context); // Appelle ta fonction en lui passant le context
+            },
+          ),
         ],
       ),
       drawer: Drawer(
@@ -328,8 +337,11 @@ class _SuperAdminPageState extends State<HomeSuperAdmin> {
             ListTile(
               leading: const Icon(Icons.logout),
               title: const Text('Déconnexion'),
-              onTap: () {},
+              onTap: () {
+                logoutUser(context); // Appel de la fonction de déconnexion avec le context
+              },
             ),
+
           ],
         ),
       ),

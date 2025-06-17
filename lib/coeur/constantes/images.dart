@@ -15,7 +15,7 @@ class ImagesApp {
 
   //logo sombre
   static const String carouselImageLight1 = 'assets/images/logos/logo_noir.png';
-  static const String carouselImageLight2 = 'assets/images/logos/parent_noir.png';
+  static const String carouselImageLight2 = 'assets/images/logos/logo_noir.png';
   static const String carouselImageLight3 = 'assets/images/logos/logo_noir.png';
   static const String carouselImageLight4 = 'assets/images/logos/logo_noir.png';
   static const String carouselImageLight5 = 'assets/images/logos/logo_noir.png';

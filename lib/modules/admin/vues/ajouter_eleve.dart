@@ -3,14 +3,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-class AjoutAdministrateurVue extends StatefulWidget {
-  const AjoutAdministrateurVue({Key? key}) : super(key: key);
+class AjoutEleveVue extends StatefulWidget {
+  const AjoutEleveVue({Key? key}) : super(key: key);
 
   @override
-  State<AjoutAdministrateurVue> createState() => _AjoutAdministrateurVueState();
+  State<AjoutEleveVue> createState() => _AjoutEleveVueState();
 }
 
-class _AjoutAdministrateurVueState extends State<AjoutAdministrateurVue> {
+class _AjoutEleveVueState extends State<AjoutEleveVue> {
   final _formKey = GlobalKey<FormState>();
   final _nomController = TextEditingController();
   final _prenomController = TextEditingController();
@@ -19,9 +19,18 @@ class _AjoutAdministrateurVueState extends State<AjoutAdministrateurVue> {
   final _adresseController = TextEditingController();
   final _motDePasseController = TextEditingController();
 
-  String? _etablissementIdSelectionne;
-  Map<String, dynamic>? _etablissementSelectionne;
+  String? _etablissementId;
+  Map<String, dynamic>? _etablissement;
   bool _loading = false;
+
+  List<Map<String, dynamic>> _classes = [];
+  String? _classeIdSelectionne;
+
+  @override
+  void initState() {
+    super.initState();
+    _chargerEtablissementUtilisateur();
+  }
 
   void _afficherMessage(String titre, String message, DialogType type) {
     if (!mounted) return;
@@ -35,15 +44,49 @@ class _AjoutAdministrateurVueState extends State<AjoutAdministrateurVue> {
     ).show();
   }
 
-  Future<List<QueryDocumentSnapshot>> _chargerEtablissements() async {
-    final snapshot = await FirebaseFirestore.instance.collection('etablissements').get();
-    return snapshot.docs;
+  Future<void> _chargerEtablissementUtilisateur() async {
+    try {
+      final userId = FirebaseAuth.instance.currentUser!.uid;
+      final snapshot = await FirebaseFirestore.instance.collection('utilisateurs').doc(userId).get();
+
+      if (snapshot.exists) {
+        final data = snapshot.data()!;
+        setState(() {
+          _etablissementId = data['etablissementId'];
+          _etablissement = data['etablissement'];
+        });
+        await _chargerClasses();
+      } else {
+        _afficherMessage("Erreur", "Impossible de récupérer l'établissement.", DialogType.error);
+      }
+    } catch (e) {
+      _afficherMessage("Erreur", "Erreur lors de la récupération : $e", DialogType.error);
+    }
   }
 
-  Future<String?> _recupererRoleAdministrateurId() async {
+  Future<void> _chargerClasses() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('classes')
+          .where('etablissementId', isEqualTo: _etablissementId)
+          .get();
+
+      setState(() {
+        _classes = snapshot.docs.map((doc) {
+          final data = doc.data();
+          data['id'] = doc.id;
+          return data;
+        }).toList();
+      });
+    } catch (e) {
+      _afficherMessage("Erreur", "Erreur lors du chargement des classes : $e", DialogType.error);
+    }
+  }
+
+  Future<String?> _recupererRoleEleveId() async {
     final snapshot = await FirebaseFirestore.instance
         .collection('roles')
-        .where('nom', isEqualTo: 'administrateur')
+        .where('nom', isEqualTo: 'eleve')
         .limit(1)
         .get();
 
@@ -54,22 +97,26 @@ class _AjoutAdministrateurVueState extends State<AjoutAdministrateurVue> {
     }
   }
 
-  Future<void> _enregistrerAdministrateur() async {
+  Future<void> _enregistrerEleve() async {
     if (!_formKey.currentState!.validate()) return;
 
-    if (_etablissementIdSelectionne == null || _etablissementSelectionne == null) {
-      _afficherMessage("Erreur", "Veuillez sélectionner un établissement.", DialogType.warning);
+    if (_etablissementId == null || _etablissement == null) {
+      _afficherMessage("Erreur", "Établissement introuvable.", DialogType.error);
+      return;
+    }
+
+    if (_classeIdSelectionne == null) {
+      _afficherMessage("Erreur", "Veuillez sélectionner une classe.", DialogType.error);
       return;
     }
 
     setState(() => _loading = true);
 
     try {
-      // Récupération du roleId du rôle administrateur
-      final roleAdministrateurId = await _recupererRoleAdministrateurId();
+      final roleEleveId = await _recupererRoleEleveId();
 
-      if (roleAdministrateurId == null) {
-        _afficherMessage("Erreur", "Le rôle administrateur est introuvable.", DialogType.error);
+      if (roleEleveId == null) {
+        _afficherMessage("Erreur", "Le rôle élève est introuvable.", DialogType.error);
         setState(() => _loading = false);
         return;
       }
@@ -90,32 +137,31 @@ class _AjoutAdministrateurVueState extends State<AjoutAdministrateurVue> {
         'adresse': _adresseController.text.trim(),
         'statut': false,
         'photoUrl': '',
-        'roleId': roleAdministrateurId,
-        'etablissementId': _etablissementIdSelectionne,
-        'etablissement': _etablissementSelectionne,
+        'roleId': roleEleveId,
+        'etablissementId': _etablissementId,
+        'etablissement': _etablissement,
+        'classeId': _classeIdSelectionne,
         'createdAt': FieldValue.serverTimestamp(),
       };
 
-      await FirebaseFirestore.instance.collection('administrateurs').doc(userId).set(userData);
-
+      await FirebaseFirestore.instance.collection('eleves').doc(userId).set(userData);
       await FirebaseFirestore.instance.collection('utilisateurs').doc(userId).set({
         ...userData,
-        'typeUtilisateur': 'administrateur',
+        'typeUtilisateur': 'eleve',
       });
 
       await FirebaseFirestore.instance.collection('authentification').doc(userId).set({
         'email': _emailController.text.trim(),
-        'roleId': roleAdministrateurId,
+        'roleId': roleEleveId,
         'uid': userId,
       });
 
-      _afficherMessage("Succès", "Administrateur ajouté avec succès", DialogType.success);
+      _afficherMessage("Succès", "Élève ajouté avec succès", DialogType.success);
       _formKey.currentState?.reset();
-
       setState(() {
-        _etablissementIdSelectionne = null;
-        _etablissementSelectionne = null;
+        _classeIdSelectionne = null;
       });
+
     } on FirebaseAuthException catch (e) {
       String message = "Erreur d'authentification";
       if (e.code == 'email-already-in-use') {
@@ -157,40 +203,29 @@ class _AjoutAdministrateurVueState extends State<AjoutAdministrateurVue> {
     );
   }
 
-  Widget _champEtablissement() {
-    return FutureBuilder<List<QueryDocumentSnapshot>>(
-      future: _chargerEtablissements(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) return const CircularProgressIndicator();
-
-        final etablissements = snapshot.data!;
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 20),
-          child: DropdownButtonFormField<String>(
-            value: _etablissementIdSelectionne,
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.school),
-              labelText: "Établissement",
-              border: OutlineInputBorder(),
-            ),
-            items: etablissements.map((doc) {
-              final data = doc.data() as Map<String, dynamic>;
-              return DropdownMenuItem(
-                value: doc.id,
-                child: Text(data['nom'] ?? "Sans nom"),
-              );
-            }).toList(),
-            onChanged: (value) {
-              final etablissement = etablissements.firstWhere((doc) => doc.id == value);
-              setState(() {
-                _etablissementIdSelectionne = value;
-                _etablissementSelectionne = etablissement.data() as Map<String, dynamic>;
-              });
-            },
-            validator: (value) => value == null ? "Sélection requise" : null,
-          ),
-        );
-      },
+  Widget _champClasse() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: DropdownButtonFormField<String>(
+        decoration: const InputDecoration(
+          prefixIcon: Icon(Icons.class_),
+          labelText: "Classe",
+          border: OutlineInputBorder(),
+        ),
+        items: _classes.map((classe) {
+          return DropdownMenuItem<String>(
+            value: classe['id'],
+            child: Text(classe['nom']),
+          );
+        }).toList(),
+        value: _classeIdSelectionne,
+        onChanged: (value) {
+          setState(() {
+            _classeIdSelectionne = value;
+          });
+        },
+        validator: (value) => value == null ? "Veuillez sélectionner une classe" : null,
+      ),
     );
   }
 
@@ -209,7 +244,7 @@ class _AjoutAdministrateurVueState extends State<AjoutAdministrateurVue> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text("Ajouter un administrateur")),
+      appBar: AppBar(title: const Text("Ajouter un élève")),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
@@ -222,10 +257,10 @@ class _AjoutAdministrateurVueState extends State<AjoutAdministrateurVue> {
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.admin_panel_settings, size: 30, color: Colors.blueAccent),
+                      const Icon(Icons.school, size: 30, color: Colors.blueAccent),
                       const SizedBox(width: 10),
                       Text(
-                        "Formulaire d'ajout d'administrateur",
+                        "Formulaire d'ajout d'élève",
                         style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
                       ),
                     ],
@@ -233,50 +268,20 @@ class _AjoutAdministrateurVueState extends State<AjoutAdministrateurVue> {
                   const SizedBox(height: 30),
                   _champTexte(label: "Nom", icon: Icons.person, controller: _nomController),
                   _champTexte(label: "Prénom", icon: Icons.person_outline, controller: _prenomController),
-                  _champTexte(
-                    label: "Email",
-                    icon: Icons.email,
-                    controller: _emailController,
-                    keyboardType: TextInputType.emailAddress,
-                    validator: (val) {
-                      if (val == null || val.isEmpty) return "Champ requis";
-                      final emailRegex = RegExp(r"^[^@]+@[^@]+\.[^@]+");
-                      if (!emailRegex.hasMatch(val)) return "Email invalide";
-                      return null;
-                    },
-                  ),
-                  _champTexte(
-                    label: "Numéro de téléphone",
-                    icon: Icons.phone,
-                    controller: _telephoneController,
-                    keyboardType: TextInputType.phone,
-                  ),
+                  _champTexte(label: "Email", icon: Icons.email, controller: _emailController, keyboardType: TextInputType.emailAddress),
+                  _champTexte(label: "Téléphone", icon: Icons.phone, controller: _telephoneController, keyboardType: TextInputType.phone),
                   _champTexte(label: "Adresse", icon: Icons.location_on, controller: _adresseController),
-                  _champTexte(
-                    label: "Mot de passe",
-                    icon: Icons.lock,
-                    controller: _motDePasseController,
-                    obscureText: true,
-                    validator: (val) {
-                      if (val == null || val.isEmpty) return "Champ requis";
-                      if (val.length < 6) return "Minimum 6 caractères";
-                      return null;
-                    },
-                  ),
-                  _champEtablissement(),
+                  _champTexte(label: "Mot de passe", icon: Icons.lock, controller: _motDePasseController, obscureText: true),
+                  _champClasse(),
                   const SizedBox(height: 30),
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
                       icon: const Icon(Icons.save),
                       label: _loading
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                            )
+                          ? const CircularProgressIndicator(strokeWidth: 2, color: Colors.white)
                           : const Text("Enregistrer"),
-                      onPressed: _loading ? null : _enregistrerAdministrateur,
+                      onPressed: _loading ? null : _enregistrerEleve,
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         textStyle: const TextStyle(fontSize: 16),

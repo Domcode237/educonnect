@@ -3,14 +3,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-class AjoutAdministrateurVue extends StatefulWidget {
-  const AjoutAdministrateurVue({Key? key}) : super(key: key);
+class AjoutSuperAdministrateurVue extends StatefulWidget {
+  const AjoutSuperAdministrateurVue({Key? key}) : super(key: key);
 
   @override
-  State<AjoutAdministrateurVue> createState() => _AjoutAdministrateurVueState();
+  State<AjoutSuperAdministrateurVue> createState() => _AjoutSuperAdministrateurVueState();
 }
 
-class _AjoutAdministrateurVueState extends State<AjoutAdministrateurVue> {
+class _AjoutSuperAdministrateurVueState extends State<AjoutSuperAdministrateurVue> {
   final _formKey = GlobalKey<FormState>();
   final _nomController = TextEditingController();
   final _prenomController = TextEditingController();
@@ -19,8 +19,6 @@ class _AjoutAdministrateurVueState extends State<AjoutAdministrateurVue> {
   final _adresseController = TextEditingController();
   final _motDePasseController = TextEditingController();
 
-  String? _etablissementIdSelectionne;
-  Map<String, dynamic>? _etablissementSelectionne;
   bool _loading = false;
 
   void _afficherMessage(String titre, String message, DialogType type) {
@@ -35,45 +33,28 @@ class _AjoutAdministrateurVueState extends State<AjoutAdministrateurVue> {
     ).show();
   }
 
-  Future<List<QueryDocumentSnapshot>> _chargerEtablissements() async {
-    final snapshot = await FirebaseFirestore.instance.collection('etablissements').get();
-    return snapshot.docs;
-  }
-
-  Future<String?> _recupererRoleAdministrateurId() async {
-    final snapshot = await FirebaseFirestore.instance
-        .collection('roles')
-        .where('nom', isEqualTo: 'administrateur')
-        .limit(1)
-        .get();
-
-    if (snapshot.docs.isNotEmpty) {
-      return snapshot.docs.first.id;
-    } else {
-      return null;
-    }
-  }
-
-  Future<void> _enregistrerAdministrateur() async {
+  Future<void> _enregistrerSuperAdministrateur() async {
     if (!_formKey.currentState!.validate()) return;
-
-    if (_etablissementIdSelectionne == null || _etablissementSelectionne == null) {
-      _afficherMessage("Erreur", "Veuillez sélectionner un établissement.", DialogType.warning);
-      return;
-    }
 
     setState(() => _loading = true);
 
     try {
-      // Récupération du roleId du rôle administrateur
-      final roleAdministrateurId = await _recupererRoleAdministrateurId();
+      // 1. Rechercher le rôle "superadmin"
+      final roleSnapshot = await FirebaseFirestore.instance
+          .collection('roles')
+          .where('nom', isEqualTo: 'Superadmin')
+          .limit(1)
+          .get();
 
-      if (roleAdministrateurId == null) {
-        _afficherMessage("Erreur", "Le rôle administrateur est introuvable.", DialogType.error);
+      if (roleSnapshot.docs.isEmpty) {
+        _afficherMessage("Erreur", "Le rôle 'superadmin' est introuvable dans la base de données.", DialogType.error);
         setState(() => _loading = false);
         return;
       }
 
+      final roleId = roleSnapshot.docs.first.id;
+
+      // 2. Créer l'utilisateur Firebase
       UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _motDePasseController.text.trim(),
@@ -90,41 +71,37 @@ class _AjoutAdministrateurVueState extends State<AjoutAdministrateurVue> {
         'adresse': _adresseController.text.trim(),
         'statut': false,
         'photoUrl': '',
-        'roleId': roleAdministrateurId,
-        'etablissementId': _etablissementIdSelectionne,
-        'etablissement': _etablissementSelectionne,
+        'roleId': roleId,
         'createdAt': FieldValue.serverTimestamp(),
       };
 
-      await FirebaseFirestore.instance.collection('administrateurs').doc(userId).set(userData);
+      // 3. Enregistrements dans Firestore
+      await FirebaseFirestore.instance.collection('superadministrateurs').doc(userId).set(userData);
 
       await FirebaseFirestore.instance.collection('utilisateurs').doc(userId).set({
         ...userData,
-        'typeUtilisateur': 'administrateur',
+        'typeUtilisateur': 'superadministrateur',
       });
 
       await FirebaseFirestore.instance.collection('authentification').doc(userId).set({
         'email': _emailController.text.trim(),
-        'roleId': roleAdministrateurId,
+        'roleId': roleId,
         'uid': userId,
       });
 
-      _afficherMessage("Succès", "Administrateur ajouté avec succès", DialogType.success);
+      _afficherMessage("Succès", "Super administrateur ajouté avec succès", DialogType.success);
       _formKey.currentState?.reset();
-
-      setState(() {
-        _etablissementIdSelectionne = null;
-        _etablissementSelectionne = null;
-      });
     } on FirebaseAuthException catch (e) {
       String message = "Erreur d'authentification";
+
       if (e.code == 'email-already-in-use') {
         message = "Cet email est déjà utilisé.";
       } else if (e.code == 'weak-password') {
         message = "Mot de passe trop faible (minimum 6 caractères).";
       } else {
-        message = e.message ?? "Erreur inconnue.";
+        message = e.message ?? "Erreur inconnue lors de la création du compte.";
       }
+
       _afficherMessage("Erreur", message, DialogType.error);
     } catch (e) {
       _afficherMessage("Erreur", "Échec de l'enregistrement : $e", DialogType.error);
@@ -157,43 +134,6 @@ class _AjoutAdministrateurVueState extends State<AjoutAdministrateurVue> {
     );
   }
 
-  Widget _champEtablissement() {
-    return FutureBuilder<List<QueryDocumentSnapshot>>(
-      future: _chargerEtablissements(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) return const CircularProgressIndicator();
-
-        final etablissements = snapshot.data!;
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 20),
-          child: DropdownButtonFormField<String>(
-            value: _etablissementIdSelectionne,
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.school),
-              labelText: "Établissement",
-              border: OutlineInputBorder(),
-            ),
-            items: etablissements.map((doc) {
-              final data = doc.data() as Map<String, dynamic>;
-              return DropdownMenuItem(
-                value: doc.id,
-                child: Text(data['nom'] ?? "Sans nom"),
-              );
-            }).toList(),
-            onChanged: (value) {
-              final etablissement = etablissements.firstWhere((doc) => doc.id == value);
-              setState(() {
-                _etablissementIdSelectionne = value;
-                _etablissementSelectionne = etablissement.data() as Map<String, dynamic>;
-              });
-            },
-            validator: (value) => value == null ? "Sélection requise" : null,
-          ),
-        );
-      },
-    );
-  }
-
   @override
   void dispose() {
     _nomController.dispose();
@@ -208,8 +148,9 @@ class _AjoutAdministrateurVueState extends State<AjoutAdministrateurVue> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
     return Scaffold(
-      appBar: AppBar(title: const Text("Ajouter un administrateur")),
+      appBar: AppBar(title: const Text("Ajouter un super administrateur")),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
@@ -222,10 +163,10 @@ class _AjoutAdministrateurVueState extends State<AjoutAdministrateurVue> {
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.admin_panel_settings, size: 30, color: Colors.blueAccent),
+                      const Icon(Icons.security, size: 30, color: Colors.redAccent),
                       const SizedBox(width: 10),
                       Text(
-                        "Formulaire d'ajout d'administrateur",
+                        "Formulaire d'ajout de super administrateur",
                         style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
                       ),
                     ],
@@ -263,7 +204,6 @@ class _AjoutAdministrateurVueState extends State<AjoutAdministrateurVue> {
                       return null;
                     },
                   ),
-                  _champEtablissement(),
                   const SizedBox(height: 30),
                   SizedBox(
                     width: double.infinity,
@@ -276,11 +216,11 @@ class _AjoutAdministrateurVueState extends State<AjoutAdministrateurVue> {
                               child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                             )
                           : const Text("Enregistrer"),
-                      onPressed: _loading ? null : _enregistrerAdministrateur,
+                      onPressed: _loading ? null : _enregistrerSuperAdministrateur,
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         textStyle: const TextStyle(fontSize: 16),
-                        backgroundColor: Colors.blueAccent,
+                        backgroundColor: Colors.redAccent,
                       ),
                     ),
                   ),

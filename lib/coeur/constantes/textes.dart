@@ -16,18 +16,17 @@ class TextesApp {
 
   // Autres
   static const String chargement = "Chargement...";
+// Les différents titres du carousel
+static const String carouselTitre1 = 'Bienvenue sur EduConnect';
+static const String carouselTitre2 = 'L’Enseignant au cœur du savoir';
+static const String carouselTitre3 = 'L’Élève, acteur de son apprentissage';
+static const String carouselTitre4 = 'Le Parent, un partenaire engagé';
+static const String carouselTitre5 = 'Prêt à commencer ?';
 
-  //les different titres du carousel
-  static const String carouselTitre1 = 'Bienvenue';
-  static const String carouselTitre2 = 'Bienvenue';
-  static const String carouselTitre3 = 'Bienvenue';
-  static const String carouselTitre4 = 'Bienvenue';
-  static const String carouselTitre5 = 'Bienvenue';
-
-  //les differents sous-titres du carousel
-  static const String carouselSousTitre1 = "commencer vootre aventure maintenant";
-  static const String carouselSousTitre2 = "commencer vootre aventure maintenant";
-  static const String carouselSousTitre3 = "commencer vootre aventure maintenant";
-  static const String carouselSousTitre4 = "commencer vootre aventure maintenant";
-  static const String carouselSousTitre5 = "commencer vootre aventure maintenant";
+// Les différents sous-titres du carousel
+static const String carouselSousTitre1 = 'Commencez votre aventure éducative dès maintenant avec EduConnect.';
+static const String carouselSousTitre2 = 'Les enseignants partagent, organisent et accompagnent efficacement les élèves.';
+static const String carouselSousTitre3 = 'Les élèves consultent leurs exercices, suivent leur progression et interagissent en toute autonomie.';
+static const String carouselSousTitre4 = 'Les parents suivent les notes, les devoirs et les absences pour mieux accompagner leurs enfants.';
+static const String carouselSousTitre5 = 'Découvrez toutes les fonctionnalités et entrez dans une nouvelle ère de l’éducation numérique.';
 }

@@ -1,4 +1,5 @@
 class NomsRoutes {
+  static const String carousel = "/carousel";
   static const String connexion = "/connexion";
   static const String inscription = "/inscription";
   static const String accueil = "/accueil";
@@ -14,7 +15,12 @@ class NomsRoutes {
   static const String modifierEtablissement = '/modifier_etablissement';
   static const String ajoutetablissement = '/ajouter_etablissement';
   static const String ajoutadministrateur = '/ajoutadministrateur';
-  
+  static const String ajoutmatiere = '/ajoutmatiere';
+  static const String ajoutclasse = '/ajoutclasse';
+  static const String classedetail = '/classeclasse';
+  static const String ajouteleve = '/ajouter-eleves';
+  static const String ajoutereleve = '/ajouteleve';
+  static const String ajouterparent = '/ajoutparent';
 
 
 }

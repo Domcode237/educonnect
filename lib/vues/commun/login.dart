@@ -7,46 +7,8 @@ import 'package:educonnect/vues/commun/forgotPassword.dart';
 import 'package:educonnect/coeur/constantes/images.dart';
 import 'package:educonnect/controleurs/controleur_auth.dart';
 import 'package:educonnect/coeur/services/service_auth.dart';
-
-// Classe RoleModele (à placer idéalement dans un fichier à part)
-class RoleModele {
-  final String id;
-  final String nom;
-  final String description;
-
-  RoleModele({
-    required this.id,
-    required this.nom,
-    required this.description,
-  });
-
-  factory RoleModele.fromMap(Map<String, dynamic> data, String documentId) {
-    final nom = data['nom'] as String?;
-    final description = data['description'] as String?;
-
-    if (nom == null || description == null) {
-      throw ArgumentError('Les champs "nom" et "description" doivent être non nuls dans les données.');
-    }
-
-    return RoleModele(
-      id: documentId,
-      nom: nom,
-      description: description,
-    );
-  }
-
-  Map<String, dynamic> toMap() {
-    return {
-      'nom': nom,
-      'description': description,
-    };
-  }
-
-  @override
-  String toString() {
-    return 'RoleModele(id: $id, nom: $nom, description: $description)';
-  }
-}
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -105,29 +67,92 @@ class _LoginPageState extends State<LoginPage> {
 
     setState(() => isLoading = false);
 
-    if (success ) {
+    if (success) {
       final role = controleur.role;
 
       if (role != null) {
         final roleNom = role.nom.toLowerCase();
 
-        if (roleNom == 'administrateur') {
-          Navigator.pushReplacementNamed(context, "/home_admin");
-        } else if (roleNom == 'enseignant') {
-          Navigator.pushReplacementNamed(context, "/home_enseignant");
-        } else if (roleNom == 'parent') {
-          Navigator.pushReplacementNamed(context, "/home_Parent");
-        } else if (roleNom == 'eleve') {
-          Navigator.pushReplacementNamed(context, "/home_eleve");
-        } else {
+        if (roleNom == 'superadmin') {
+          // Superadmin n'a pas d'établissement, connexion directe
           Navigator.pushReplacementNamed(context, "/home_super_admin");
+        } else {
+          // Pour les autres rôles, récupération de l'id établissement
+          final user = FirebaseAuth.instance.currentUser;
+          if (user != null) {
+            final userDoc = await FirebaseFirestore.instance
+                .collection('utilisateurs')
+                .doc(user.uid)
+                .get();
+            if (userDoc.exists) {
+              final userData = userDoc.data();
+              final etablissementId = userData?['etablissementId'] as String?;
+
+              if (etablissementId == null || etablissementId.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text("Aucun établissement associé à cet utilisateur.")),
+                );
+                return;
+              }
+
+              // Navigation selon rôle, avec passage de l'etablissementId en argument si besoin
+              if (roleNom == 'administrateur') {
+                Navigator.pushReplacementNamed(
+                  context,
+                  "/home_admin",
+                  arguments: {'etablissementId': etablissementId},
+                );
+              } else if (roleNom == 'enseignant') {
+                Navigator.pushReplacementNamed(
+                  context,
+                  "/home_enseignant",
+                  arguments: {'etablissementId': etablissementId},
+                );
+              } else if (roleNom == 'parent') {
+                Navigator.pushReplacementNamed(
+                  context,
+                  "/home_Parent",
+                  arguments: {'etablissementId': etablissementId},
+                );
+              } else if (roleNom == 'eleve') {
+                Navigator.pushReplacementNamed(
+                  context,
+                  "/home_eleve",
+                  arguments: {'etablissementId': etablissementId},
+                );
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content:
+                        Text("Rôle inconnu. Veuillez contacter l'administrateur."),
+                    backgroundColor: Colors.redAccent,
+                  ),
+                );
+                Navigator.pushReplacementNamed(context, "/login");
+              }
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Utilisateur non trouvé dans la base.")),
+              );
+            }
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Utilisateur non connecté.")),
+            );
+          }
         }
       } else {
-        // Rôle non défini, redirection par défaut
-        Navigator.pushReplacementNamed(context, '/superAdmin');
+        // Rôle inconnu
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Rôle inconnu. Veuillez contacter l'administrateur."),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+        Navigator.pushReplacementNamed(context, "/login"); // page de secours
       }
-    }
-    else {
+    } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Échec de la connexion")),
       );
@@ -159,7 +184,8 @@ class _LoginPageState extends State<LoginPage> {
                       decoration: InputDecoration(
                         labelText: 'Email',
                         prefixIcon: const Icon(Icons.email),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        border:
+                            OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -177,7 +203,8 @@ class _LoginPageState extends State<LoginPage> {
                             setState(() => obscurePassword = !obscurePassword);
                           },
                         ),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        border:
+                            OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
                   ],
@@ -214,10 +241,12 @@ class _LoginPageState extends State<LoginPage> {
                   child: ElevatedButton(
                     onPressed: isLoading ? null : _handleLogin,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: isDark ? Colors.blue : const Color.fromARGB(255, 25, 49, 82),
+                      backgroundColor:
+                          isDark ? Colors.blue : const Color.fromARGB(255, 25, 49, 82),
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30)),
                     ),
                     child: isLoading
                         ? const CircularProgressIndicator(color: Colors.white)

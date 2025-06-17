@@ -1,4 +1,3 @@
-// service_auth.dart
 import 'package:firebase_auth/firebase_auth.dart';
 
 class ServiceAuth {
@@ -7,7 +6,10 @@ class ServiceAuth {
   // Connexion avec email et mot de passe
   Future<User?> connecter(String email, String motDePasse) async {
     try {
-      final result = await _auth.signInWithEmailAndPassword(email: email, password: motDePasse);
+      final result = await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: motDePasse,
+      );
       return result.user;
     } catch (e) {
       print('Erreur connexion: $e');
@@ -15,21 +17,17 @@ class ServiceAuth {
     }
   }
 
-  // Connexion avec Google (exemple)
+  // Connexion avec Google (à implémenter si besoin)
   Future<User?> connecterAvecGoogle() async {
-    // Implémentation Google Sign-In (à compléter selon votre projet)
-    // Pour l’exemple, on retourne null
+    // Implémenter selon votre projet avec GoogleSignIn
     return null;
   }
 
-  // Récupérer le rôle de l’utilisateur (simulateur / mock)
+  // Récupérer le rôle de l'utilisateur depuis Firestore ou simuler
   Future<String?> recupererRoleUtilisateur(String uid) async {
-    // Exemple: faire appel à Firestore ou autre pour récupérer le rôle
-    // Ici un mock pour l’exemple:
+    // Simuler une requête à une base de données
     await Future.delayed(const Duration(milliseconds: 500));
-    // Exemple de rôle : 'administrateur', 'enseignant', 'parent', 'eleve', 'super_admin'
-    // A remplacer par une vraie lecture dans la base
-    if (uid.isNotEmpty) return 'administrateur';
+    if (uid.isNotEmpty) return 'administrateur'; // Simulé
     return null;
   }
 
