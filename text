@@ -1,0 +1,187 @@
+voici mon model utilisateur:class UtilisateurModele {
+  final String id;
+  final String nom;
+  final String prenom;
+  final String email;
+  final String numeroTelephone;
+  final String adresse;
+  final String motDePasse;
+  final bool statut;
+  final String roleId;
+  final String etablissementId;
+  final String? photo; 
+
+  UtilisateurModele({
+    required this.id,
+    required this.nom,
+    required this.prenom,
+    required this.email,
+    required this.numeroTelephone,
+    required this.adresse,
+    required this.motDePasse,
+    required this.statut,
+    required this.roleId,
+    required this.etablissementId,
+    this.photo,
+  });
+
+  factory UtilisateurModele.fromMap(Map<String, dynamic> map, String id) {
+    return UtilisateurModele(
+      id: id,
+      nom: map['nom'] ?? '',
+      prenom: map['prenom'] ?? '',
+      email: map['email'] ?? '',
+      numeroTelephone: map['numeroTelephone'] ?? '',
+      adresse: map['adresse'] ?? '',
+      motDePasse: map['motDePasse'] ?? '',
+      statut: map['statut'] ?? true,
+      roleId: map['roleId'] ?? '',
+      etablissementId: map['etablissementId'] ?? '',
+      photo: map['photo'], 
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'nom': nom,
+      'prenom': prenom,
+      'email': email,
+      'numeroTelephone': numeroTelephone,
+      'adresse': adresse,
+      'motDePasse': motDePasse,
+      'statut': statut,
+      'roleId': roleId,
+      'etablissementId': etablissementId,
+      'photo': photo, 
+    };
+  }
+
+  @override
+  String toString() {
+    return 'Utilisateur(id: $id, nom: $nom, prenom: $prenom, roleId: $roleId, etablissementId: $etablissementId, photo: $photo)';
+  }
+}voici pour le role:class RoleModele {
+  final String id;
+  final String nom;
+  final String description;
+
+  RoleModele({
+    required this.id,
+    required this.nom,
+    required this.description,
+  });
+
+  factory RoleModele.fromMap(Map<String, dynamic> data, String documentId) {
+    final nom = data['nom'] as String?;
+    final description = data['description'] as String?;
+
+    if (nom == null || description == null) {
+      throw ArgumentError('Les champs "nom" et "description" doivent être non nuls dans les données.');
+    }
+
+    return RoleModele(
+      id: documentId,
+      nom: nom,
+      description: description,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'nom': nom,
+      'description': description,
+    };
+  }
+
+  @override
+  String toString() {
+    return 'RoleModele(id: $id, nom: $nom, description: $description)';
+  }
+}et voici pour administrateur:/// Modèle représentant un administrateur dans la base de données Firestore.
+/// Chaque administrateur est lié à un utilisateur existant dans la collection "utilisateurs".
+class AdministrateurModele {
+  /// ID du document Firestore dans la collection "administrateurs".
+  final String id;
+
+  /// ID de l'utilisateur associé à cet administrateur (clé étrangère).
+  final String utilisateurId;
+
+  /// Constructeur principal utilisant des paramètres nommés.
+  AdministrateurModele({required this.id, required this.utilisateurId});
+
+  /// Factory permettant de créer une instance d'AdministrateurModele à partir
+  /// d'une map (généralement issue de Firestore) et de l'ID du document Firestore.
+  factory AdministrateurModele.fromMap(Map<String, dynamic> map, String id) {
+    return AdministrateurModele(
+      id: id,
+      utilisateurId: map['utilisateurId'] as String,
+    );
+  }
+
+  /// Convertit l'instance d'AdministrateurModele en une Map<String, dynamic>
+  /// à stocker dans Firestore ou à convertir en JSON.
+  ///
+  /// Ici, l'ID n'est pas inclus dans la Map car Firestore gère l'ID séparément.
+  Map<String, dynamic> toMap() {
+    return {
+      'utilisateurId': utilisateurId,
+    };
+  }
+} donc admin me contiend que l'id de l'utilisateur et je veux que a lieur d'aller cherche les informations dans administrateur tu recherche juste l'id du role don t le nom est administrateur et une fois sela fait tu recupere tout les utilisateurs qui ont se roleid et tu les affiches. et pour chaque utilisateur tu prent l'id de letablisement dans utilisateur et tu vas dans la collection etablisement pour recuperer le nom de l'etablisement en question . voici le model etablissement:class EtablissementModele {
+  final String id;
+  final String nom;
+  final String type;
+  final String description;
+  final String adresse;
+  final String ville;
+  final String region;
+  final String pays;
+  final String codePostal;
+  final String email;
+  final String telephone;
+
+  EtablissementModele({
+    required this.id,
+    required this.nom,
+    required this.type,
+    required this.description,
+    required this.adresse,
+    required this.ville,
+    required this.region,
+    required this.pays,
+    required this.codePostal,
+    required this.email,
+    required this.telephone,
+  });
+
+  factory EtablissementModele.fromMap(Map<String, dynamic> map, String id) {
+    return EtablissementModele(
+      id: id,
+      nom: map['nom'] ?? '',
+      type: map['type'] ?? '',
+      description: map['description'] ?? '',
+      adresse: map['adresse'] ?? '',
+      ville: map['ville'] ?? '',
+      region: map['region'] ?? '',
+      pays: map['pays'] ?? '',
+      codePostal: map['codePostal'] ?? '',
+      email: map['email'] ?? '',
+      telephone: map['telephone'] ?? '',
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'nom': nom,
+      'type': type,
+      'description': description,
+      'adresse': adresse,
+      'ville': ville,
+      'region': region,
+      'pays': pays,
+      'codePostal': codePostal,
+      'email': email,
+      'telephone': telephone,
+    };
+  }
+}donc produit moi le fichier complet pour afficher ces administrateur seleon la logique que jutilise ci-haut. donne moi un fichier complet et en maintenent le disign suivent:

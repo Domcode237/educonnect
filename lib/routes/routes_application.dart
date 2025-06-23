@@ -51,7 +51,19 @@ final Map<String, WidgetBuilder> routes = {
   NomsRoutes.ajoutRole : (context) => AjoutRoleVue(),
   NomsRoutes.ajoutetablissement : (context) => AjoutEtablissementVue(),
   NomsRoutes.ajoutadministrateur : (context) => const AjoutAdministrateurVue(),
-  NomsRoutes.ajoutereleve : (context) => const AjoutEleveVue(),
+  NomsRoutes.ajoutereleve: (context) {
+    final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>?;
+    final etablissementId = args != null ? args['etablissementId'] as String : null;
+
+    if (etablissementId == null) {
+      // Tu peux afficher une page d'erreur ou retourner une page vide
+      return Scaffold(
+        body: Center(child: Text('Établissement non spécifié')),
+      );
+    }
+
+    return AjoutEleveVue(etablissementId: etablissementId);
+  },
 
   //route pour ajouter un parent
   NomsRoutes.ajouterparent: (context) {
@@ -62,7 +74,7 @@ final Map<String, WidgetBuilder> routes = {
       );
     }
     final idEtab = route.settings.arguments as String;
-    return AjouterParentPage(etablissementId: idEtab);
+    return AjoutParentVue(etablissementId: idEtab);
   },
 
   //route pour ajouter une matiere

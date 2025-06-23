@@ -1,233 +1,272 @@
-import 'package:flutter/material.dart';
+import 'dart:typed_data';
+import 'package:awesome_dialog/awesome_dialog.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:educonnect/donnees/modeles/utilisateur_modele.dart';
-import 'package:educonnect/donnees/modeles/ParentModele.dart';
-import 'package:educonnect/donnees/depots/DepotParent.dart';
-import 'package:educonnect/donnees/modeles/ClasseModele.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:appwrite/appwrite.dart';
+import 'package:appwrite/models.dart';
+import 'package:educonnect/main.dart';
 
-class AjouterParentPage extends StatefulWidget {
+class AjoutParentVue extends StatefulWidget {
   final String etablissementId;
 
-  const AjouterParentPage({Key? key, required this.etablissementId}) : super(key: key);
+  const AjoutParentVue({Key? key, required this.etablissementId}) : super(key: key);
 
   @override
-  State<AjouterParentPage> createState() => _AjouterParentPageState();
+  State<AjoutParentVue> createState() => _AjoutParentVueState();
 }
 
-class _AjouterParentPageState extends State<AjouterParentPage> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  late DepotParent _depotParent;
+class _AjoutParentVueState extends State<AjoutParentVue> {
   final _formKey = GlobalKey<FormState>();
 
-  String? nom, prenom, email, numeroTelephone, adresse, motDePasse;
-  List<ClasseModele> classesDisponibles = [];
-  ClasseModele? classeSelectionnee;
+  final _nomController = TextEditingController();
+  final _prenomController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _telephoneController = TextEditingController();
+  final _adresseController = TextEditingController();
+  final _motDePasseController = TextEditingController();
 
-  List<QueryDocumentSnapshot> elevesDisponibles = [];
-  String? eleveSelectionne;
+  Uint8List? _imageBytes;
+  String? _imageName;
+  bool _loading = false;
 
-  String? roleParentId, roleEleveId;
-  bool _chargement = false;
+  void _afficherMessage(String titre, String message, DialogType type) {
+    if (!mounted) return;
+    AwesomeDialog(
+      context: context,
+      dialogType: type,
+      animType: AnimType.scale,
+      title: titre,
+      desc: message,
+      btnOkOnPress: () {},
+    ).show();
+  }
+
+  Future<String?> _recupererRoleParentId() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('roles')
+          .where('nom', isEqualTo: 'parent')
+          .limit(1)
+          .get();
+      if (snapshot.docs.isNotEmpty) {
+        return snapshot.docs.first.id;
+      }
+      return null;
+    } catch (e) {
+      _afficherMessage("Erreur", "Erreur lors de la récupération du rôle parent : $e", DialogType.error);
+      return null;
+    }
+  }
+
+  Future<void> _choisirImage() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      final bytes = await pickedFile.readAsBytes();
+      setState(() {
+        _imageBytes = bytes;
+        _imageName = pickedFile.name;
+      });
+    }
+  }
+
+  Future<String?> _uploadImageToAppwrite(Uint8List fileBytes, String fileName) async {
+    try {
+      const bucketId = '6854df330032c7be516c';
+      final result = await appwriteStorage.createFile(
+        bucketId: bucketId,
+        fileId: ID.unique(),
+        file: InputFile(
+          bytes: fileBytes,
+          filename: fileName,
+          contentType: 'image/png',
+        ),
+      );
+      return result.$id;
+    } catch (e) {
+      debugPrint('Erreur Appwrite lors de l\'upload: $e');
+      return null;
+    }
+  }
+
+  Future<void> _enregistrerParent() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _loading = true);
+
+    try {
+      final roleParentId = await _recupererRoleParentId();
+      if (roleParentId == null) {
+        _afficherMessage("Erreur", "Le rôle parent est introuvable.", DialogType.error);
+        setState(() => _loading = false);
+        return;
+      }
+
+      UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _motDePasseController.text.trim(),
+      );
+
+      String userId = userCredential.user!.uid;
+      String? fileId;
+      if (_imageBytes != null && _imageName != null) {
+        fileId = await _uploadImageToAppwrite(_imageBytes!, _imageName!);
+      }
+
+      final utilisateurData = {
+        'uid': userId,
+        'nom': _nomController.text.trim(),
+        'prenom': _prenomController.text.trim(),
+        'email': _emailController.text.trim(),
+        'numeroTelephone': _telephoneController.text.trim(),
+        'adresse': _adresseController.text.trim(),
+        'statut': false,
+        'photo': fileId ?? '',
+        'roleId': roleParentId,
+        'etablissementId': widget.etablissementId,
+        'createdAt': FieldValue.serverTimestamp(),
+      };
+
+      await FirebaseFirestore.instance.collection('utilisateurs').doc(userId).set(utilisateurData);
+
+      final parentData = {
+        'utilisateurId': userId,     
+      };
+
+      await FirebaseFirestore.instance.collection('parents').doc(userId).set(parentData);
+
+      _afficherMessage("Succès", "Parent ajouté avec succès", DialogType.success);
+      _formKey.currentState?.reset();
+      setState(() {
+        _imageBytes = null;
+        _imageName = null;
+      });
+    } on FirebaseAuthException catch (e) {
+      String message = "Erreur d'authentification";
+      if (e.code == 'email-already-in-use') {
+        message = "Cet email est déjà utilisé.";
+      } else if (e.code == 'weak-password') {
+        message = "Mot de passe trop faible.";
+      } else {
+        message = e.message ?? "Erreur inconnue.";
+      }
+      _afficherMessage("Erreur", message, DialogType.error);
+    } catch (e) {
+      _afficherMessage("Erreur", "Erreur lors de l'enregistrement : $e", DialogType.error);
+    } finally {
+      setState(() => _loading = false);
+    }
+  }
+
+  Widget _champTexte({
+    required String label,
+    required IconData icon,
+    required TextEditingController controller,
+    bool obscureText = false,
+    TextInputType keyboardType = TextInputType.text,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: TextFormField(
+        controller: controller,
+        obscureText: obscureText,
+        keyboardType: keyboardType,
+        decoration: InputDecoration(
+          prefixIcon: Icon(icon),
+          labelText: label,
+          border: const OutlineInputBorder(),
+        ),
+        validator: (value) => (value == null || value.isEmpty) ? "Champ requis" : null,
+      ),
+    );
+  }
+
+  Widget _champImage() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text("Photo du parent", style: TextStyle(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 10),
+        GestureDetector(
+          onTap: _choisirImage,
+          child: _imageBytes == null
+              ? Container(
+                  width: double.infinity,
+                  height: 150,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.add_a_photo, size: 50, color: Colors.grey),
+                )
+              : ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.memory(
+                    _imageBytes!,
+                    width: double.infinity,
+                    height: 200,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+        ),
+        const SizedBox(height: 20),
+      ],
+    );
+  }
 
   @override
-  void initState() {
-    super.initState();
-    chargerDonneesInitiales();
-  }
-
-  Future<void> chargerDonneesInitiales() async {
-    try {
-      final roleParentSnap = await _firestore.collection('roles').where('nom', isEqualTo: 'parent').limit(1).get();
-      if (roleParentSnap.docs.isEmpty) {
-        _showSnackBar("Rôle 'parent' introuvable.");
-        return;
-      }
-      roleParentId = roleParentSnap.docs.first.id;
-      _depotParent = DepotParent(roleParentId!);
-
-      final roleEleveSnap = await _firestore.collection('roles').where('nom', isEqualTo: 'eleve').limit(1).get();
-      if (roleEleveSnap.docs.isEmpty) {
-        _showSnackBar("Rôle 'élève' introuvable.");
-        return;
-      }
-      roleEleveId = roleEleveSnap.docs.first.id;
-
-      final classesSnap = await _firestore.collection('classes')
-          .where('etablissementId', isEqualTo: widget.etablissementId)
-          .get();
-
-      setState(() {
-        classesDisponibles = classesSnap.docs.map((doc) => ClasseModele.fromMap(doc.data(), doc.id)).toList();
-      });
-    } catch (e) {
-      _showSnackBar("Erreur lors du chargement : $e");
-    }
-  }
-
-  // *** MODIFICATION ICI : filtre direct par classeId ***
-  Future<void> chargerElevesDeClasse(ClasseModele classe) async {
-    try {
-      final elevesSnap = await _firestore.collection('utilisateurs')
-          .where('etablissementId', isEqualTo: widget.etablissementId)
-          .where('classeId', isEqualTo: classe.id)
-          .where('roleId', isEqualTo: roleEleveId)
-          .get();
-
-      setState(() {
-        elevesDisponibles = elevesSnap.docs;
-        eleveSelectionne = null;
-      });
-    } catch (e) {
-      _showSnackBar("Erreur lors du chargement des élèves : $e");
-    }
-  }
-
-  void _showSnackBar(String message) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
-    }
-  }
-
-  Future<void> ajouterParent() async {
-    if (!_formKey.currentState!.validate()) return;
-    if (eleveSelectionne == null) {
-      _showSnackBar("Veuillez sélectionner un enfant");
-      return;
-    }
-    if (roleParentId == null) {
-      _showSnackBar("Impossible d'ajouter le parent.");
-      return;
-    }
-
-    _formKey.currentState!.save();
-    setState(() => _chargement = true);
-
-    try {
-      final utilisateurDoc = _firestore.collection('utilisateurs').doc();
-
-      final utilisateur = UtilisateurModele(
-        id: utilisateurDoc.id,
-        nom: nom!,
-        prenom: prenom!,
-        email: email!,
-        numeroTelephone: numeroTelephone ?? '',
-        adresse: adresse ?? '',
-        motDePasse: motDePasse ?? '',
-        statut: true,
-        roleId: roleParentId!,
-        etablissementId: widget.etablissementId,
-      );
-
-      final parent = ParentModele(
-        id: utilisateur.id,
-        utilisateur: utilisateur,
-        enfants: [eleveSelectionne!],
-      );
-
-      await _depotParent.ajouterParent(parent);
-      await _firestore.collection('eleves').doc(eleveSelectionne!).update({'parent': utilisateur.id});
-
-      _showSnackBar("Parent ajouté avec succès");
-      Navigator.pop(context);
-    } catch (e) {
-      _showSnackBar("Erreur lors de l'ajout : $e");
-    } finally {
-      setState(() => _chargement = false);
-    }
+  void dispose() {
+    _nomController.dispose();
+    _prenomController.dispose();
+    _emailController.dispose();
+    _telephoneController.dispose();
+    _adresseController.dispose();
+    _motDePasseController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (roleParentId == null || roleEleveId == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
     return Scaffold(
       appBar: AppBar(title: const Text("Ajouter un parent")),
-      body: _chargement
-          ? const Center(child: CircularProgressIndicator())
-          : Padding(
-              padding: const EdgeInsets.all(16),
-              child: Form(
-                key: _formKey,
-                child: ListView(
-                  children: [
-                    _buildTextField("Nom", (v) => nom = v),
-                    _buildTextField("Prénom", (v) => prenom = v),
-                    _buildTextField("Email", (v) => email = v, type: TextInputType.emailAddress, isEmail: true),
-                    _buildTextField("Numéro de téléphone", (v) => numeroTelephone = v, type: TextInputType.phone),
-                    _buildTextField("Adresse", (v) => adresse = v),
-                    _buildTextField("Mot de passe", (v) => motDePasse = v, isPassword: true),
-
-                    const SizedBox(height: 20),
-
-                    const Text('Sélectionner une classe :', style: TextStyle(fontWeight: FontWeight.bold)),
-                    DropdownButtonFormField<ClasseModele>(
-                      items: classesDisponibles.map((classe) {
-                        return DropdownMenuItem(
-                          value: classe,
-                          child: Text("${classe.niveau} - ${classe.nom}"),
-                        );
-                      }).toList(),
-                      value: classeSelectionnee,
-                      onChanged: (val) {
-                        setState(() {
-                          classeSelectionnee = val;
-                        });
-                        if (val != null) {
-                          chargerElevesDeClasse(val);
-                        }
-                      },
-                      validator: (v) => v == null ? 'Sélection obligatoire' : null,
-                    ),
-
-                    const SizedBox(height: 20),
-
-                    const Text('Sélectionner un enfant :', style: TextStyle(fontWeight: FontWeight.bold)),
-                    elevesDisponibles.isEmpty
-                        ? const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 16),
-                            child: Text('Aucun enfant disponible pour cette classe'),
-                          )
-                        : DropdownButtonFormField<String>(
-                            items: elevesDisponibles.map((doc) {
-                              final nomEleve = "${doc['nom']} ${doc['prenom']}";
-                              return DropdownMenuItem(value: doc.id, child: Text(nomEleve));
-                            }).toList(),
-                            value: eleveSelectionne,
-                            onChanged: (val) => setState(() => eleveSelectionne = val),
-                            validator: (v) => v == null ? 'Sélection obligatoire' : null,
-                          ),
-
-                    const SizedBox(height: 30),
-
-                    ElevatedButton.icon(
-                      onPressed: ajouterParent,
-                      icon: const Icon(Icons.save),
-                      label: const Text("Ajouter le parent"),
-                      style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(50)),
-                    ),
-                  ],
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _champImage(),
+              _champTexte(label: "Nom", icon: Icons.person, controller: _nomController),
+              _champTexte(label: "Prénom", icon: Icons.person_outline, controller: _prenomController),
+              _champTexte(label: "Email", icon: Icons.email, controller: _emailController, keyboardType: TextInputType.emailAddress),
+              _champTexte(label: "Téléphone", icon: Icons.phone, controller: _telephoneController, keyboardType: TextInputType.phone),
+              _champTexte(label: "Adresse", icon: Icons.location_on, controller: _adresseController),
+              _champTexte(label: "Mot de passe", icon: Icons.lock, controller: _motDePasseController, obscureText: true),
+              const SizedBox(height: 30),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  icon: _loading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.save),
+                  label: const Text("Enregistrer"),
+                  onPressed: _loading ? null : _enregistrerParent,
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    textStyle: const TextStyle(fontSize: 16),
+                    backgroundColor: Colors.blueAccent,
+                  ),
                 ),
               ),
-            ),
-    );
-  }
-
-  Widget _buildTextField(String label, Function(String?) onSaved,
-      {TextInputType type = TextInputType.text, bool isEmail = false, bool isPassword = false}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: TextFormField(
-        decoration: InputDecoration(labelText: label, border: OutlineInputBorder()),
-        keyboardType: type,
-        obscureText: isPassword,
-        validator: (v) {
-          if (v == null || v.isEmpty) return 'Obligatoire';
-          if (isEmail && !v.contains('@')) return 'Email invalide';
-          return null;
-        },
-        onSaved: onSaved,
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -1,29 +1,35 @@
-import 'package:educonnect/donnees/modeles/utilisateur_modele.dart';
-
+/// Modèle représentant un parent dans la base de données Firestore.
+/// Chaque parent est lié à un utilisateur existant dans la collection "utilisateurs".
 class ParentModele {
-  final String id; // nouvel id pour Parent
-  final UtilisateurModele utilisateur;
-  final List<String> enfants; // Liste des IDs des élèves
+  /// ID du document Firestore dans la collection "parents".
+  final String id;
 
+  /// ID de l'utilisateur associé à ce parent (clé étrangère).
+  final String utilisateurId;
+
+  /// Constructeur principal.
   ParentModele({
     required this.id,
-    required this.utilisateur,
-    required this.enfants,
+    required this.utilisateurId,
   });
 
+  /// Factory pour construire un `ParentModele` à partir d'une Map.
   factory ParentModele.fromMap(Map<String, dynamic> map, String id) {
     return ParentModele(
       id: id,
-      utilisateur: UtilisateurModele.fromMap(map, id), // si UtilisateurModele utilise le même id, sinon adapte
-      enfants: List<String>.from(map['enfants'] ?? []),
+      utilisateurId: map['utilisateurId'] ?? '',
     );
   }
 
+  /// Convertit le modèle en une Map pour Firestore ou JSON.
   Map<String, dynamic> toMap() {
     return {
-      ...utilisateur.toMap(),
-      'enfants': enfants,
-      // 'id': id, // généralement l'id n’est pas dans les données Firestore, donc tu peux commenter ou supprimer
+      'utilisateurId': utilisateurId,
     };
+  }
+
+  @override
+  String toString() {
+    return 'ParentModele(id: $id, utilisateurId: $utilisateurId)';
   }
 }

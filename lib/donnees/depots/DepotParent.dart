@@ -1,78 +1,71 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:educonnect/donnees/modeles/utilisateur_modele.dart';
 import 'package:educonnect/donnees/modeles/ParentModele.dart';
-import 'package:educonnect/donnees/depots/depot_utilisateur.dart';
 
-class DepotParent {
-  final DepotUtilisateur _depotUtilisateur = DepotUtilisateur();
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
+class Depotparent {
+  final CollectionReference _parentCollection =
+      FirebaseFirestore.instance.collection('parents');
 
-  // On stocke l'ID du rôle parent, par exemple "a1b2c3d4"
-  final String _roleIdParent;
-
-  // Constructeur prenant l'id du rôle parent en paramètre
-  DepotParent(this._roleIdParent);
-
-  /// Construit la map à enregistrer dans Firestore avec la liste d'IDs enfants
-  Map<String, dynamic> _mapAvecEnfants(UtilisateurModele utilisateur, List<String> enfants) {
-    final map = utilisateur.toMap();
-    map['enfants'] = enfants;
-    return map;
+  /// Ajoute un nouveau parent
+  Future<String> ajouterParent(ParentModele parent) async {
+    try {
+      final docRef = await _parentCollection.add(parent.toMap());
+      return docRef.id;
+    } catch (e) {
+      throw Exception("Erreur lors de l'ajout du parent : $e");
+    }
   }
 
-  /// Ajoute un parent avec la liste d'IDs enfants dans Firestore (doc id = parent.id)
-  Future<void> ajouterParent(ParentModele parent) async {
-    assert(parent.utilisateur.roleId == _roleIdParent, 'Le rôle doit être celui du parent');
-    final map = _mapAvecEnfants(parent.utilisateur, parent.enfants);
-    await _db.collection('utilisateurs').doc(parent.id).set(map);
+  /// Récupère un parent par son ID
+  Future<ParentModele?> getParentParId(String parentId) async {
+    try {
+      final doc = await _parentCollection.doc(parentId).get();
+      if (!doc.exists) return null;
+      return ParentModele.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+    } catch (e) {
+      throw Exception("Erreur lors de la récupération du parent : $e");
+    }
   }
 
-  /// Modifie un parent avec la liste d'IDs enfants mise à jour
-  Future<void> modifierParent(String id, ParentModele parent) async {
-    assert(parent.utilisateur.roleId == _roleIdParent, 'Le rôle doit être celui du parent');
-    final map = _mapAvecEnfants(parent.utilisateur, parent.enfants);
-    await _db.collection('utilisateurs').doc(id).update(map);
+  /// Met à jour les données d’un parent
+  Future<void> modifierParent(String parentId, Map<String, dynamic> nouvellesDonnees) async {
+    try {
+      await _parentCollection.doc(parentId).update(nouvellesDonnees);
+    } catch (e) {
+      throw Exception("Erreur lors de la modification du parent : $e");
+    }
   }
 
-  /// Supprime un parent par son ID
-  Future<void> supprimerParent(String id) async {
-    await _depotUtilisateur.supprimerUtilisateur(id);
+  /// Supprime un parent par ID
+  Future<void> supprimerParent(String parentId) async {
+    try {
+      await _parentCollection.doc(parentId).delete();
+    } catch (e) {
+      throw Exception("Erreur lors de la suppression du parent : $e");
+    }
   }
 
-  /// Récupère tous les parents, en reconstruisant ParentModele avec la liste d'IDs enfants
-  Future<List<ParentModele>> getTousLesParents() async {
-    final snapshot = await _db.collection('utilisateurs')
-      .where('roleId', isEqualTo: _roleIdParent)
-      .get();
-
-    return snapshot.docs.map((doc) {
-      final data = doc.data();
-      final utilisateur = UtilisateurModele.fromMap(data, doc.id);
-      final enfants = (data['enfants'] as List<dynamic>? ?? []).cast<String>();
-      return ParentModele(
-        id: doc.id,
-        utilisateur: utilisateur,
-        enfants: enfants,
-      );
-    }).toList();
+  /// Liste tous les parents (en temps réel)
+  Stream<List<ParentModele>> getTousLesParentsStream() {
+    return _parentCollection.snapshots().map((snapshot) {
+      return snapshot.docs
+          .map((doc) => ParentModele.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+          .toList();
+    });
   }
 
-  /// Récupère un parent par ID avec sa liste d'IDs enfants
-  Future<ParentModele?> getParentParId(String id) async {
-    final doc = await _db.collection('utilisateurs').doc(id).get();
+  /// Recherche de parents par utilisateurId
+  Future<ParentModele?> getParentParUtilisateurId(String utilisateurId) async {
+    try {
+      final query = await _parentCollection
+          .where('utilisateurId', isEqualTo: utilisateurId)
+          .limit(1)
+          .get();
 
-    if (!doc.exists) return null;
-
-    final data = doc.data()!;
-    if (data['roleId'] != _roleIdParent) return null;
-
-    final utilisateur = UtilisateurModele.fromMap(data, doc.id);
-    final enfants = (data['enfants'] as List<dynamic>? ?? []).cast<String>();
-
-    return ParentModele(
-      id: doc.id,
-      utilisateur: utilisateur,
-      enfants: enfants,
-    );
+      if (query.docs.isEmpty) return null;
+      final doc = query.docs.first;
+      return ParentModele.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+    } catch (e) {
+      throw Exception("Erreur lors de la récupération du parent par utilisateurId : $e");
+    }
   }
 }

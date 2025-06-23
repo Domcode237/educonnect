@@ -21,6 +21,8 @@ class NomsRoutes {
   static const String ajouteleve = '/ajouter-eleves';
   static const String ajoutereleve = '/ajouteleve';
   static const String ajouterparent = '/ajoutparent';
+  static const String pageadmin = '/pagePrincipaleAdmin';
+  
 
 
 }

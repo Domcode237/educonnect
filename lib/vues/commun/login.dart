@@ -34,14 +34,10 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _loadSavedCredentials() async {
     final prefs = await SharedPreferences.getInstance();
-    final savedEmail = prefs.getString('email') ?? '';
-    final savedPassword = prefs.getString('password') ?? '';
-    final savedRememberMe = prefs.getBool('rememberMe') ?? false;
-
     setState(() {
-      emailController.text = savedEmail;
-      passwordController.text = savedPassword;
-      rememberMe = savedRememberMe;
+      emailController.text = prefs.getString('email') ?? '';
+      passwordController.text = prefs.getString('password') ?? '';
+      rememberMe = prefs.getBool('rememberMe') ?? false;
     });
   }
 
@@ -65,104 +61,106 @@ class _LoginPageState extends State<LoginPage> {
       await prefs.setBool('rememberMe', false);
     }
 
-    setState(() => isLoading = false);
-
     if (success) {
-      final role = controleur.role;
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        // ✅ Mise à jour du statut à true
+        await FirebaseFirestore.instance
+            .collection('utilisateurs')
+            .doc(user.uid)
+            .update({'statut': true});
+      }
 
+      // 🎯 Redirection par rôle
+      final role = controleur.role;
       if (role != null) {
         final roleNom = role.nom.toLowerCase();
 
         if (roleNom == 'superadmin') {
-          // Superadmin n'a pas d'établissement, connexion directe
           Navigator.pushReplacementNamed(context, "/home_super_admin");
         } else {
-          // Pour les autres rôles, récupération de l'id établissement
-          final user = FirebaseAuth.instance.currentUser;
-          if (user != null) {
-            final userDoc = await FirebaseFirestore.instance
-                .collection('utilisateurs')
-                .doc(user.uid)
-                .get();
-            if (userDoc.exists) {
-              final userData = userDoc.data();
-              final etablissementId = userData?['etablissementId'] as String?;
+          final userDoc = await FirebaseFirestore.instance
+              .collection('utilisateurs')
+              .doc(FirebaseAuth.instance.currentUser?.uid)
+              .get();
 
-              if (etablissementId == null || etablissementId.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                      content: Text("Aucun établissement associé à cet utilisateur.")),
-                );
-                return;
-              }
+          if (userDoc.exists) {
+            final etablissementId = userDoc.data()?['etablissementId'] as String?;
+            if (etablissementId == null || etablissementId.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                    content: Text(
+                        "Aucun établissement associé à cet utilisateur.")),
+              );
+              return;
+            }
 
-              // Navigation selon rôle, avec passage de l'etablissementId en argument si besoin
-              if (roleNom == 'administrateur') {
-                Navigator.pushReplacementNamed(
-                  context,
-                  "/home_admin",
-                  arguments: {'etablissementId': etablissementId},
-                );
-              } else if (roleNom == 'enseignant') {
-                Navigator.pushReplacementNamed(
-                  context,
-                  "/home_enseignant",
-                  arguments: {'etablissementId': etablissementId},
-                );
-              } else if (roleNom == 'parent') {
-                Navigator.pushReplacementNamed(
-                  context,
-                  "/home_Parent",
-                  arguments: {'etablissementId': etablissementId},
-                );
-              } else if (roleNom == 'eleve') {
-                Navigator.pushReplacementNamed(
-                  context,
-                  "/home_eleve",
-                  arguments: {'etablissementId': etablissementId},
-                );
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content:
-                        Text("Rôle inconnu. Veuillez contacter l'administrateur."),
-                    backgroundColor: Colors.redAccent,
-                  ),
-                );
-                Navigator.pushReplacementNamed(context, "/login");
-              }
+            if (roleNom == 'administrateur') {
+              Navigator.pushReplacementNamed(
+                context,
+                "/home_admin",
+                arguments: {'etablissementId': etablissementId},
+              );
+            } else if (roleNom == 'enseignant') {
+              Navigator.pushReplacementNamed(
+                context,
+                "/home_enseignant",
+                arguments: {'etablissementId': etablissementId},
+              );
+            } else if (roleNom == 'parent') {
+              Navigator.pushReplacementNamed(
+                context,
+                "/home_Parent",
+                arguments: {'etablissementId': etablissementId},
+              );
+            } else if (roleNom == 'eleve') {
+              Navigator.pushReplacementNamed(
+                context,
+                "/home_eleve",
+                arguments: {'etablissementId': etablissementId},
+              );
             } else {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("Utilisateur non trouvé dans la base.")),
+                const SnackBar(
+                  content: Text(
+                      "Rôle inconnu. Veuillez contacter l'administrateur."),
+                  backgroundColor: Colors.redAccent,
+                ),
               );
+              Navigator.pushReplacementNamed(context, "/login");
             }
           } else {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Utilisateur non connecté.")),
+              const SnackBar(
+                content: Text("Utilisateur non trouvé dans la base."),
+              ),
             );
           }
         }
       } else {
-        // Rôle inconnu
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("Rôle inconnu. Veuillez contacter l'administrateur."),
+            content:
+                Text("Rôle inconnu. Veuillez contacter l'administrateur."),
             backgroundColor: Colors.redAccent,
           ),
         );
-        Navigator.pushReplacementNamed(context, "/login"); // page de secours
+        Navigator.pushReplacementNamed(context, "/login");
       }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Échec de la connexion")),
       );
     }
+
+    setState(() => isLoading = false);
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final logoPath = isDark ? ImagesApp.logoAppSombre : ImagesApp.logoAppClaire;
+    final logoPath =
+        isDark ? ImagesApp.logoAppSombre : ImagesApp.logoAppClaire;
 
     return Scaffold(
       body: Center(
@@ -184,8 +182,9 @@ class _LoginPageState extends State<LoginPage> {
                       decoration: InputDecoration(
                         labelText: 'Email',
                         prefixIcon: const Icon(Icons.email),
-                        border:
-                            OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -197,14 +196,16 @@ class _LoginPageState extends State<LoginPage> {
                         prefixIcon: const Icon(Icons.lock),
                         suffixIcon: IconButton(
                           icon: Icon(
-                            obscurePassword ? Icons.visibility_off : Icons.visibility,
+                            obscurePassword
+                                ? Icons.visibility_off
+                                : Icons.visibility,
                           ),
-                          onPressed: () {
-                            setState(() => obscurePassword = !obscurePassword);
-                          },
+                          onPressed: () =>
+                              setState(() => obscurePassword = !obscurePassword),
                         ),
-                        border:
-                            OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                     ),
                   ],
@@ -217,20 +218,19 @@ class _LoginPageState extends State<LoginPage> {
                       children: [
                         Checkbox(
                           value: rememberMe,
-                          onChanged: (value) {
-                            setState(() => rememberMe = value ?? false);
-                          },
+                          onChanged: (value) =>
+                              setState(() => rememberMe = value ?? false),
                         ),
                         const Text('Se souvenir de moi'),
                       ],
                     ),
                     TextButton(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const Forgotpassword()),
-                        );
-                      },
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const Forgotpassword(),
+                        ),
+                      ),
                       child: const Text('Mot de passe oublié ?'),
                     ),
                   ],
@@ -242,15 +242,21 @@ class _LoginPageState extends State<LoginPage> {
                     onPressed: isLoading ? null : _handleLogin,
                     style: ElevatedButton.styleFrom(
                       backgroundColor:
-                          isDark ? Colors.blue : const Color.fromARGB(255, 25, 49, 82),
+                          isDark ? Colors.blue : const Color(0xFF193152),
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(30)),
+                        borderRadius: BorderRadius.circular(30),
+                      ),
                     ),
                     child: isLoading
-                        ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text('Se connecter', style: TextStyle(fontSize: 16)),
+                        ? const CircularProgressIndicator(
+                            color: Colors.white,
+                          )
+                        : const Text(
+                            'Se connecter',
+                            style: TextStyle(fontSize: 16),
+                          ),
                   ),
                 ),
                 const SizedBox(height: 32),
@@ -311,7 +317,7 @@ class _LoginSocialButtons extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final borderColor = isDark ? Colors.white : const Color.fromARGB(255, 25, 49, 82);
+    final borderColor = isDark ? Colors.white : const Color(0xFF193152);
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -326,7 +332,8 @@ class _LoginSocialButtons extends StatelessWidget {
               Navigator.pushReplacementNamed(context, '/accueil');
             } else {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Échec de connexion avec Google')),
+                const SnackBar(
+                    content: Text('Échec de connexion avec Google')),
               );
             }
           },
@@ -338,7 +345,8 @@ class _LoginSocialButtons extends StatelessWidget {
           borderColor: borderColor,
           onPressed: () {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Connexion Facebook non implémentée')),
+              const SnackBar(
+                  content: Text('Connexion Facebook non implémentée')),
             );
           },
         ),
@@ -349,8 +357,8 @@ class _LoginSocialButtons extends StatelessWidget {
   Widget _buildSocialButton({
     required IconData icon,
     required Color color,
-    required VoidCallback onPressed,
     required Color borderColor,
+    required VoidCallback onPressed,
   }) {
     return InkWell(
       onTap: onPressed,

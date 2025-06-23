@@ -1,10 +1,18 @@
+import 'dart:typed_data';
 import 'package:awesome_dialog/awesome_dialog.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:appwrite/appwrite.dart';
+import 'package:appwrite/models.dart'; // pour InputFile
+import 'package:educonnect/main.dart'; // pour appwriteStorage
 
 class AjoutEleveVue extends StatefulWidget {
-  const AjoutEleveVue({Key? key}) : super(key: key);
+  final String etablissementId;
+
+  const AjoutEleveVue({Key? key, required this.etablissementId}) : super(key: key);
 
   @override
   State<AjoutEleveVue> createState() => _AjoutEleveVueState();
@@ -12,6 +20,7 @@ class AjoutEleveVue extends StatefulWidget {
 
 class _AjoutEleveVueState extends State<AjoutEleveVue> {
   final _formKey = GlobalKey<FormState>();
+
   final _nomController = TextEditingController();
   final _prenomController = TextEditingController();
   final _emailController = TextEditingController();
@@ -19,17 +28,20 @@ class _AjoutEleveVueState extends State<AjoutEleveVue> {
   final _adresseController = TextEditingController();
   final _motDePasseController = TextEditingController();
 
-  String? _etablissementId;
   Map<String, dynamic>? _etablissement;
   bool _loading = false;
+  bool _chargementTermine = false;
 
   List<Map<String, dynamic>> _classes = [];
   String? _classeIdSelectionne;
 
+  Uint8List? _imageBytes;
+  String? _imageName;
+
   @override
   void initState() {
     super.initState();
-    _chargerEtablissementUtilisateur();
+    _chargerEtablissementEtClasses();
   }
 
   void _afficherMessage(String titre, String message, DialogType type) {
@@ -44,23 +56,28 @@ class _AjoutEleveVueState extends State<AjoutEleveVue> {
     ).show();
   }
 
-  Future<void> _chargerEtablissementUtilisateur() async {
-    try {
-      final userId = FirebaseAuth.instance.currentUser!.uid;
-      final snapshot = await FirebaseFirestore.instance.collection('utilisateurs').doc(userId).get();
+  Future<void> _chargerEtablissementEtClasses() async {
+    if (widget.etablissementId.isEmpty) {
+      _afficherMessage("Erreur", "L'identifiant de l'établissement est manquant.", DialogType.error);
+      return;
+    }
 
+    try {
+      final snapshot = await FirebaseFirestore.instance.collection('etablissements').doc(widget.etablissementId).get();
       if (snapshot.exists) {
-        final data = snapshot.data()!;
         setState(() {
-          _etablissementId = data['etablissementId'];
-          _etablissement = data['etablissement'];
+          _etablissement = snapshot.data();
         });
         await _chargerClasses();
       } else {
-        _afficherMessage("Erreur", "Impossible de récupérer l'établissement.", DialogType.error);
+        _afficherMessage("Erreur", "Établissement introuvable.", DialogType.error);
       }
     } catch (e) {
-      _afficherMessage("Erreur", "Erreur lors de la récupération : $e", DialogType.error);
+      _afficherMessage("Erreur", "Erreur lors du chargement de l'établissement : $e", DialogType.error);
+    } finally {
+      setState(() {
+        _chargementTermine = true;
+      });
     }
   }
 
@@ -68,7 +85,7 @@ class _AjoutEleveVueState extends State<AjoutEleveVue> {
     try {
       final snapshot = await FirebaseFirestore.instance
           .collection('classes')
-          .where('etablissementId', isEqualTo: _etablissementId)
+          .where('etablissementId', isEqualTo: widget.etablissementId)
           .get();
 
       setState(() {
@@ -84,15 +101,50 @@ class _AjoutEleveVueState extends State<AjoutEleveVue> {
   }
 
   Future<String?> _recupererRoleEleveId() async {
-    final snapshot = await FirebaseFirestore.instance
-        .collection('roles')
-        .where('nom', isEqualTo: 'eleve')
-        .limit(1)
-        .get();
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('roles')
+          .where('nom', isEqualTo: 'eleve')
+          .limit(1)
+          .get();
 
-    if (snapshot.docs.isNotEmpty) {
-      return snapshot.docs.first.id;
-    } else {
+      if (snapshot.docs.isNotEmpty) {
+        return snapshot.docs.first.id;
+      }
+      return null;
+    } catch (e) {
+      _afficherMessage("Erreur", "Erreur lors de la récupération du rôle élève : $e", DialogType.error);
+      return null;
+    }
+  }
+
+  Future<void> _choisirImage() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      final bytes = await pickedFile.readAsBytes();
+      setState(() {
+        _imageBytes = bytes;
+        _imageName = pickedFile.name;
+      });
+    }
+  }
+
+  Future<String?> _uploadImageToAppwrite(Uint8List fileBytes, String fileName) async {
+    try {
+      const bucketId = '6854df330032c7be516c'; // adapte cet ID à ton bucket
+      final result = await appwriteStorage.createFile(
+        bucketId: bucketId,
+        fileId: ID.unique(),
+        file: InputFile(
+          bytes: fileBytes,
+          filename: fileName,
+          contentType: 'image/png',
+        ),
+      );
+      return result.$id;
+    } catch (e) {
+      debugPrint('Erreur Appwrite lors de l\'upload: $e');
       return null;
     }
   }
@@ -100,7 +152,7 @@ class _AjoutEleveVueState extends State<AjoutEleveVue> {
   Future<void> _enregistrerEleve() async {
     if (!_formKey.currentState!.validate()) return;
 
-    if (_etablissementId == null || _etablissement == null) {
+    if (_etablissement == null) {
       _afficherMessage("Erreur", "Établissement introuvable.", DialogType.error);
       return;
     }
@@ -121,6 +173,7 @@ class _AjoutEleveVueState extends State<AjoutEleveVue> {
         return;
       }
 
+      // Création utilisateur Firebase Auth
       UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _motDePasseController.text.trim(),
@@ -128,7 +181,14 @@ class _AjoutEleveVueState extends State<AjoutEleveVue> {
 
       String userId = userCredential.user!.uid;
 
-      final userData = {
+      // Upload image si sélectionnée
+      String? fileId;
+      if (_imageBytes != null && _imageName != null) {
+        fileId = await _uploadImageToAppwrite(_imageBytes!, _imageName!);
+      }
+
+      // Préparation des données utilisateur à enregistrer dans Firestore
+      final utilisateurData = {
         'uid': userId,
         'nom': _nomController.text.trim(),
         'prenom': _prenomController.text.trim(),
@@ -136,32 +196,32 @@ class _AjoutEleveVueState extends State<AjoutEleveVue> {
         'numeroTelephone': _telephoneController.text.trim(),
         'adresse': _adresseController.text.trim(),
         'statut': false,
-        'photoUrl': '',
+        'photo': fileId ?? '',
         'roleId': roleEleveId,
-        'etablissementId': _etablissementId,
+        'etablissementId': widget.etablissementId,
         'etablissement': _etablissement,
-        'classeId': _classeIdSelectionne,
         'createdAt': FieldValue.serverTimestamp(),
       };
 
-      await FirebaseFirestore.instance.collection('eleves').doc(userId).set(userData);
-      await FirebaseFirestore.instance.collection('utilisateurs').doc(userId).set({
-        ...userData,
-        'typeUtilisateur': 'eleve',
-      });
+      // Enregistrer utilisateur dans la collection 'utilisateurs'
+      await FirebaseFirestore.instance.collection('utilisateurs').doc(userId).set(utilisateurData);
 
-      await FirebaseFirestore.instance.collection('authentification').doc(userId).set({
-        'email': _emailController.text.trim(),
-        'roleId': roleEleveId,
-        'uid': userId,
-      });
+      // Enregistrer élève dans la collection 'eleves' avec seulement utilisateurId et classeId
+      final eleveData = {
+        'utilisateurId': userId,
+        'classeId': _classeIdSelectionne,
+        'notesIds': <String>[],
+      };
+
+      await FirebaseFirestore.instance.collection('eleves').doc(userId).set(eleveData);
 
       _afficherMessage("Succès", "Élève ajouté avec succès", DialogType.success);
       _formKey.currentState?.reset();
       setState(() {
         _classeIdSelectionne = null;
+        _imageBytes = null;
+        _imageName = null;
       });
-
     } on FirebaseAuthException catch (e) {
       String message = "Erreur d'authentification";
       if (e.code == 'email-already-in-use') {
@@ -229,6 +289,42 @@ class _AjoutEleveVueState extends State<AjoutEleveVue> {
     );
   }
 
+  Widget _champImage() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          "Photo de l'élève",
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 10),
+        GestureDetector(
+          onTap: _choisirImage,
+          child: _imageBytes == null
+              ? Container(
+                  width: double.infinity,
+                  height: 150,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.add_a_photo, size: 50, color: Colors.grey),
+                )
+              : ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.memory(
+                    _imageBytes!,
+                    width: double.infinity,
+                    height: 200,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+        ),
+        const SizedBox(height: 20),
+      ],
+    );
+  }
+
   @override
   void dispose() {
     _nomController.dispose();
@@ -243,6 +339,14 @@ class _AjoutEleveVueState extends State<AjoutEleveVue> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
+    if (!_chargementTermine) {
+      return Scaffold(
+        appBar: AppBar(title: const Text("Ajouter un élève")),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(title: const Text("Ajouter un élève")),
       body: Center(
@@ -266,6 +370,7 @@ class _AjoutEleveVueState extends State<AjoutEleveVue> {
                     ],
                   ),
                   const SizedBox(height: 30),
+                  _champImage(),
                   _champTexte(label: "Nom", icon: Icons.person, controller: _nomController),
                   _champTexte(label: "Prénom", icon: Icons.person_outline, controller: _prenomController),
                   _champTexte(label: "Email", icon: Icons.email, controller: _emailController, keyboardType: TextInputType.emailAddress),
@@ -277,10 +382,14 @@ class _AjoutEleveVueState extends State<AjoutEleveVue> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      icon: const Icon(Icons.save),
-                      label: _loading
-                          ? const CircularProgressIndicator(strokeWidth: 2, color: Colors.white)
-                          : const Text("Enregistrer"),
+                      icon: _loading
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Icon(Icons.save),
+                      label: const Text("Enregistrer"),
                       onPressed: _loading ? null : _enregistrerEleve,
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),

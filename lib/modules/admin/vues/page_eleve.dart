@@ -4,6 +4,8 @@ import 'package:educonnect/modules/admin/vues/modifer_eleve.dart';
 import 'package:educonnect/donnees/modeles/utilisateur_modele.dart';
 import 'package:educonnect/donnees/modeles/ClasseModele.dart';
 import 'package:educonnect/donnees/modeles/EleveModele.dart';
+import 'package:educonnect/modules/admin/vues/ajouter_eleve.dart';
+import 'package:educonnect/main.dart';  // pour appwriteClient
 
 class ListeEleves extends StatefulWidget {
   final String etablissementId;
@@ -16,7 +18,6 @@ class ListeEleves extends StatefulWidget {
 
 class _ListeElevesState extends State<ListeEleves> {
   String searchQuery = '';
-  String? roleEleveId;
   String? selectedClasseId;
   List<Map<String, String>> classes = [];
   bool isLoadingClasses = true;
@@ -24,30 +25,7 @@ class _ListeElevesState extends State<ListeEleves> {
   @override
   void initState() {
     super.initState();
-    _initData();
-  }
-
-  Future<void> _initData() async {
-    await _chargerRoleEleve();
-    await _chargerClasses();
-  }
-
-  Future<void> _chargerRoleEleve() async {
-    try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('roles')
-          .where('nom', isEqualTo: 'eleve')
-          .limit(1)
-          .get();
-
-      if (snapshot.docs.isNotEmpty) {
-        setState(() {
-          roleEleveId = snapshot.docs.first.id;
-        });
-      }
-    } catch (e) {
-      debugPrint("Erreur role eleve: $e");
-    }
+    _chargerClasses();
   }
 
   Future<void> _chargerClasses() async {
@@ -57,12 +35,12 @@ class _ListeElevesState extends State<ListeEleves> {
           .where('etablissementId', isEqualTo: widget.etablissementId)
           .get();
 
-      List<Map<String, String>> loadedClasses = [];
-
-      for (var doc in snapshot.docs) {
-        final classe = ClasseModele.fromMap(doc.data(), doc.id);
-        loadedClasses.add({'id': classe.id, 'nom': classe.nom});
-      }
+      List<Map<String, String>> loadedClasses = snapshot.docs
+          .map((doc) {
+            final classe = ClasseModele.fromMap(doc.data(), doc.id);
+            return {'id': classe.id, 'nom': classe.nom};
+          })
+          .toList();
 
       setState(() {
         classes = loadedClasses;
@@ -76,7 +54,11 @@ class _ListeElevesState extends State<ListeEleves> {
     }
   }
 
-  Future<void> _supprimerUtilisateur(BuildContext context, String docId) async {
+  bool isValidId(String? id) {
+    return id != null && id.isNotEmpty;
+  }
+
+  Future<void> _supprimerUtilisateur(BuildContext context, String utilisateurId, String eleveId) async {
     final confirmation = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -91,7 +73,9 @@ class _ListeElevesState extends State<ListeEleves> {
 
     if (confirmation == true) {
       try {
-        await FirebaseFirestore.instance.collection('utilisateurs').doc(docId).delete();
+        await FirebaseFirestore.instance.collection('eleves').doc(eleveId).delete();
+        await FirebaseFirestore.instance.collection('utilisateurs').doc(utilisateurId).delete();
+
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Élève supprimé avec succès')));
       } catch (e) {
@@ -101,21 +85,64 @@ class _ListeElevesState extends State<ListeEleves> {
     }
   }
 
-  Stream<QuerySnapshot> _buildStream() {
-    if (roleEleveId == null) {
-      return const Stream.empty();
-    }
-
-    final ref = FirebaseFirestore.instance
+  /// Étape 1: récupérer les IDs des utilisateurs de l'établissement
+  Future<List<String>> _getUtilisateurIdsPourEtablissement() async {
+    final snapshot = await FirebaseFirestore.instance
         .collection('utilisateurs')
-        .where('roleId', isEqualTo: roleEleveId)
-        .where('etablissementId', isEqualTo: widget.etablissementId);
+        .where('etablissementId', isEqualTo: widget.etablissementId)
+        .get();
 
-    if (selectedClasseId != null) {
-      return ref.where('classeId', isEqualTo: selectedClasseId).snapshots();
-    } else {
-      return ref.snapshots();
+    return snapshot.docs.map((doc) => doc.id).toList();
+  }
+
+  /// Étape 2: récupérer les élèves liés à ces utilisateurs, avec filtre classe si nécessaire
+  Future<List<EleveModele>> _chargerElevesFiltres() async {
+    final utilisateurIds = await _getUtilisateurIdsPourEtablissement();
+
+    if (utilisateurIds.isEmpty) return [];
+
+    List<EleveModele> eleves = [];
+
+    for (int i = 0; i < utilisateurIds.length; i += 10) {
+      final batchIds = utilisateurIds.sublist(
+        i,
+        i + 10 > utilisateurIds.length ? utilisateurIds.length : i + 10,
+      );
+
+      Query query = FirebaseFirestore.instance.collection('eleves')
+          .where('utilisateurId', whereIn: batchIds);
+
+      // Appliquer filtre classe si sélectionné
+      if (selectedClasseId != null && selectedClasseId!.isNotEmpty) {
+        query = query.where('classeId', isEqualTo: selectedClasseId);
+      }
+
+      final snapshot = await query.get();
+      eleves.addAll(snapshot.docs.map((doc) => EleveModele.fromMap(doc.data() as Map<String, dynamic>, doc.id)));
     }
+
+    return eleves;
+  }
+
+  /// Filtre recherche sur le nom/prénom utilisateur lié
+  Future<bool> _filtrerEleveParRecherche(EleveModele eleve) async {
+    if (searchQuery.isEmpty) return true;
+
+    try {
+      final utilisateurDoc = await FirebaseFirestore.instance.collection('utilisateurs').doc(eleve.utilisateurId).get();
+      if (!utilisateurDoc.exists) return false;
+      final utilisateur = UtilisateurModele.fromMap(utilisateurDoc.data()! as Map<String, dynamic>, utilisateurDoc.id);
+
+      final fullName = '${utilisateur.nom} ${utilisateur.prenom}'.toLowerCase();
+      return fullName.contains(searchQuery);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  String? _getAppwriteImageUrl(String? fileId) {
+    if (fileId == null || fileId.isEmpty) return null;
+    return '${appwriteClient.endPoint}/storage/buckets/6854df330032c7be516c/files/$fileId/view?project=${appwriteClient.config['project']}';
   }
 
   @override
@@ -128,7 +155,7 @@ class _ListeElevesState extends State<ListeEleves> {
       backgroundColor: Colors.white,
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 20), // un peu moins de padding
+          padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 20),
           child: Column(
             children: [
               _buildSearchBar(),
@@ -136,74 +163,97 @@ class _ListeElevesState extends State<ListeEleves> {
               _buildFilterBar(),
               const SizedBox(height: 12),
               Expanded(
-                child: roleEleveId == null
-                    ? const Center(child: CircularProgressIndicator())
-                    : StreamBuilder<QuerySnapshot>(
-                        stream: _buildStream(),
-                        builder: (context, snapshot) {
-                          if (snapshot.connectionState == ConnectionState.waiting) {
-                            return const Center(child: CircularProgressIndicator());
-                          }
-                          if (snapshot.hasError) {
-                            return Center(child: Text("Erreur : ${snapshot.error}"));
-                          }
+                child: FutureBuilder<List<EleveModele>>(
+                  future: _chargerElevesFiltres(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (snapshot.hasError) {
+                      return Center(child: Text("Erreur : ${snapshot.error}"));
+                    }
 
-                          final docs = snapshot.data?.docs ?? [];
-                          final eleves = docs
-                              .map((doc) {
-                                final data = doc.data() as Map<String, dynamic>;
-                                final utilisateur = UtilisateurModele.fromMap(data, doc.id);
-                                final classeId = data['classeId'] ?? '';
-                                return EleveModele(utilisateur: utilisateur, classeId: classeId, notes: []);
-                              })
-                              .where((eleve) =>
-                                  eleve.utilisateur.nom.toLowerCase().contains(searchQuery) ||
-                                  eleve.utilisateur.prenom.toLowerCase().contains(searchQuery) ||
-                                  eleve.utilisateur.email.toLowerCase().contains(searchQuery))
-                              .toList();
+                    final eleves = snapshot.data ?? [];
 
-                          if (eleves.isEmpty) {
-                            return const Center(child: Text("Aucun élève trouvé."));
-                          }
+                    if (eleves.isEmpty) {
+                      return const Center(child: Text("Aucun élève trouvé."));
+                    }
 
-                          return ListView.builder(
-                            padding: const EdgeInsets.only(bottom: 80),
-                            itemCount: eleves.length,
-                            itemBuilder: (context, index) {
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 6.0),
-                                child: FutureBuilder<DocumentSnapshot>(
-                                  future: FirebaseFirestore.instance.collection('classes').doc(eleves[index].classeId).get(),
+                    return FutureBuilder<List<EleveModele>>(
+                      future: Future.wait(eleves.map((eleve) async {
+                        if (await _filtrerEleveParRecherche(eleve)) return eleve;
+                        return null;
+                      }).toList()).then((results) => results.whereType<EleveModele>().toList()),
+                      builder: (context, filteredSnapshot) {
+                        if (!filteredSnapshot.hasData) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+
+                        final filteredEleves = filteredSnapshot.data!;
+
+                        if (filteredEleves.isEmpty) {
+                          return const Center(child: Text("Aucun élève ne correspond à la recherche."));
+                        }
+
+                        return ListView.builder(
+                          padding: const EdgeInsets.only(bottom: 80),
+                          itemCount: filteredEleves.length,
+                          itemBuilder: (context, index) {
+                            final eleve = filteredEleves[index];
+
+                            if (!isValidId(eleve.utilisateurId)) {
+                              return const ListTile(title: Text('ID utilisateur invalide'));
+                            }
+
+                            return FutureBuilder<DocumentSnapshot>(
+                              future: FirebaseFirestore.instance.collection('utilisateurs').doc(eleve.utilisateurId).get(),
+                              builder: (context, utilisateurSnapshot) {
+                                if (utilisateurSnapshot.connectionState == ConnectionState.waiting) {
+                                  return const ListTile(title: Text('Chargement...'));
+                                }
+                                if (!utilisateurSnapshot.hasData || !utilisateurSnapshot.data!.exists) {
+                                  return const ListTile(title: Text('Utilisateur non trouvé'));
+                                }
+
+                                final utilisateur = UtilisateurModele.fromMap(
+                                  utilisateurSnapshot.data!.data()! as Map<String, dynamic>,
+                                  utilisateurSnapshot.data!.id,
+                                );
+
+                                return FutureBuilder<DocumentSnapshot>(
+                                  future: FirebaseFirestore.instance.collection('classes').doc(eleve.classeId).get(),
                                   builder: (context, classeSnapshot) {
                                     String classeNom = 'Classe inconnue';
                                     if (classeSnapshot.hasData && classeSnapshot.data!.exists) {
                                       final dataClasse = classeSnapshot.data!.data() as Map<String, dynamic>;
                                       classeNom = dataClasse['nom'] ?? 'Classe inconnue';
                                     }
-                                    return GestureDetector(
-                                      onTap: () {
-                                        Navigator.pushNamed(
-                                          context,
-                                          '/elevedetail',
-                                          arguments: eleves[index].utilisateur.id,
-                                        );
-                                      },
-                                      child: _buildUtilisateurCard(context, eleves[index], classeNom, isLargeScreen, isTablet),
-                                    );
+
+                                    return _buildUtilisateurCard(context, eleve, utilisateur, classeNom, isLargeScreen, isTablet);
                                   },
-                                ),
-                              );
-                            },
-                          );
-                        },
-                      ),
+                                );
+                              },
+                            );
+                          },
+                        );
+                      },
+                    );
+                  },
+                ),
               ),
             ],
           ),
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => Navigator.pushNamed(context, '/ajouteleve'),
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => AjoutEleveVue(etablissementId: widget.etablissementId),
+            ),
+          );
+        },
         child: const Icon(Icons.add),
       ),
     );
@@ -257,120 +307,122 @@ class _ListeElevesState extends State<ListeEleves> {
           );
   }
 
-  Widget _buildUtilisateurCard(BuildContext context, EleveModele eleve, String classeNom, bool isLargeScreen, bool isTablet) {
-  double avatarRadius = isLargeScreen ? 25 : (isTablet ? 22 : 18);
-  double fontSize = isLargeScreen ? 16 : (isTablet ? 14 : 12);
-  double infoFontSize = isLargeScreen ? 14 : (isTablet ? 12 : 10);
+  Widget _buildUtilisateurCard(BuildContext context, EleveModele eleve, UtilisateurModele utilisateur, String classeNom, bool isLargeScreen, bool isTablet) {
+    double avatarRadius = isLargeScreen ? 25 : (isTablet ? 22 : 18);
+    double fontSize = isLargeScreen ? 16 : (isTablet ? 14 : 12);
+    double infoFontSize = isLargeScreen ? 14 : (isTablet ? 12 : 10);
 
-  final utilisateur = eleve.utilisateur;
-  final primaryColor = Colors.blueAccent;
-  final secondaryColor = Colors.blue.shade100;
-  final deleteColor = Colors.redAccent;
-  final textColor = Colors.black87;
-  final subTextColor = Colors.grey[700];
+    final primaryColor = Colors.blueAccent;
+    final secondaryColor = Colors.blue.shade100;
+    final deleteColor = Colors.redAccent;
+    final textColor = Colors.black87;
+    final subTextColor = Colors.grey[700];
 
-  return InkWell(
-    borderRadius: BorderRadius.circular(12),
-    onTap: () {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => EleveDetailCard(eleve: eleve, classeNom: classeNom),
-        ),
-      );
-    },
-    child: Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: Colors.grey.shade300, width: 1),
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(color: Colors.grey.withOpacity(0.15), blurRadius: 4, offset: const Offset(0, 2)),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              CircleAvatar(
-                radius: avatarRadius,
-                backgroundColor: secondaryColor,
-                child: Icon(Icons.person, size: avatarRadius, color: primaryColor),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text("${utilisateur.nom} ${utilisateur.prenom}",
-                        style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.bold, color: textColor)),
-                    const SizedBox(height: 2),
-                    Text(utilisateur.email, style: TextStyle(fontSize: infoFontSize, color: subTextColor)),
-                  ],
-                ),
-              ),
-              Row(
-                children: [
-                  IconButton(
-                    icon: Icon(Icons.edit, color: primaryColor, size: infoFontSize + 6),
-                    tooltip: "Modifier",
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => ModificationEleveVue(eleveId: utilisateur.id)),
-                    ),
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.delete, color: deleteColor, size: infoFontSize + 6),
-                    tooltip: "Supprimer",
-                    onPressed: () => _supprimerUtilisateur(context, utilisateur.id),
-                  ),
-                ],
-              ),
-            ],
+    final photoUrl = _getAppwriteImageUrl(utilisateur.photo);
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => EleveDetailCard(eleve: eleve, classeNom: classeNom),
           ),
-          const SizedBox(height: 8),
-          const Divider(height: 1, thickness: 1),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Icon(Icons.phone, color: subTextColor, size: infoFontSize),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(utilisateur.numeroTelephone ?? '-', style: TextStyle(fontSize: infoFontSize, color: textColor)),
-              ),
-              Icon(Icons.home, color: subTextColor, size: infoFontSize),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(utilisateur.adresse ?? '-', style: TextStyle(fontSize: infoFontSize, color: textColor)),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Row(
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: Colors.grey.shade300, width: 1),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(color: Colors.grey.withOpacity(0.15), blurRadius: 4, offset: const Offset(0, 2)),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: avatarRadius,
+                  backgroundColor: secondaryColor,
+                  backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
+                  child: photoUrl == null ? Icon(Icons.person, size: avatarRadius, color: primaryColor) : null,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("${utilisateur.nom} ${utilisateur.prenom}",
+                          style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.bold, color: textColor)),
+                      const SizedBox(height: 2),
+                      Text(utilisateur.email, style: TextStyle(fontSize: infoFontSize, color: subTextColor)),
+                    ],
+                  ),
+                ),
+                Row(
                   children: [
-                    Icon(Icons.class_, color: primaryColor, size: infoFontSize),
-                    const SizedBox(width: 4),
-                    Text(
-                      classeNom,
-                      style: TextStyle(
-                        fontSize: infoFontSize,
-                        fontWeight: FontWeight.bold,
-                        color: primaryColor,
+                    IconButton(
+                      icon: Icon(Icons.edit, color: primaryColor, size: infoFontSize + 6),
+                      tooltip: "Modifier",
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => ModificationEleveVue(eleveId: eleve.id)),
                       ),
                     ),
+                    IconButton(
+                      icon: Icon(Icons.delete, color: deleteColor, size: infoFontSize + 6),
+                      tooltip: "Supprimer",
+                      onPressed: () => _supprimerUtilisateur(context, utilisateur.id, eleve.id),
+                    ),
                   ],
                 ),
-              ),
-            ],
-          ),
-        ],
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Divider(height: 1, thickness: 1),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(Icons.phone, color: subTextColor, size: infoFontSize),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(utilisateur.numeroTelephone.isNotEmpty ? utilisateur.numeroTelephone : '-', style: TextStyle(fontSize: infoFontSize, color: textColor)),
+                ),
+                Icon(Icons.home, color: subTextColor, size: infoFontSize),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(utilisateur.adresse.isNotEmpty ? utilisateur.adresse : '-', style: TextStyle(fontSize: infoFontSize, color: textColor)),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Icon(Icons.class_, color: primaryColor, size: infoFontSize),
+                      const SizedBox(width: 4),
+                      Text(
+                        classeNom,
+                        style: TextStyle(
+                          fontSize: infoFontSize,
+                          fontWeight: FontWeight.bold,
+                          color: primaryColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
-}
-
 
 class EleveDetailCard extends StatelessWidget {
   final EleveModele eleve;
@@ -384,7 +436,7 @@ class EleveDetailCard extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 22, color: Color.fromARGB(255, 19, 51, 76)),
+          Icon(icon, size: 22, color: const Color.fromARGB(255, 19, 51, 76)),
           const SizedBox(width: 12),
           SizedBox(
             width: 110,
@@ -434,13 +486,6 @@ class EleveDetailCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.blue.shade100,
         borderRadius: BorderRadius.circular(14),
-        // boxShadow: [
-        //   BoxShadow(
-        //     color: const Color.fromARGB(66, 6, 171, 253).withOpacity(0.1),
-        //     blurRadius: 6,
-        //     offset: const Offset(0, 3),
-        //   ),
-        // ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -454,64 +499,54 @@ class EleveDetailCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final utilisateur = eleve.utilisateur;
+    return FutureBuilder<DocumentSnapshot>(
+      future: FirebaseFirestore.instance.collection('utilisateurs').doc(eleve.utilisateurId).get(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (!snapshot.hasData || !snapshot.data!.exists) {
+          return const Scaffold(
+            body: Center(child: Text('Utilisateur non trouvé')),
+          );
+        }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('${utilisateur.nom} ${utilisateur.prenom}'),
-        centerTitle: true,
-        backgroundColor: Color.fromARGB(255, 19, 51, 76),
-        elevation: 1,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 700),
+        final utilisateur = UtilisateurModele.fromMap(
+          snapshot.data!.data()! as Map<String, dynamic>,
+          snapshot.data!.id,
+        );
+
+        return Scaffold(
+          appBar: AppBar(
+            title: Text('${utilisateur.nom} ${utilisateur.prenom}'),
+            centerTitle: true,
+            backgroundColor: const Color.fromARGB(255, 19, 51, 76),
+            elevation: 1,
+          ),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
             child: Column(
               children: [
-                CircleAvatar(
-                  radius: 55,
-                  backgroundColor: Color.fromARGB(255, 19, 51, 76),
-                  child: Icon(Icons.person, size: 60, color: Colors.white),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  '${utilisateur.nom} ${utilisateur.prenom}',
-                  style: const TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.bold,
-                    color: Color.fromARGB(255, 19, 51, 76),
-                  ),
-                ),
-                const SizedBox(height: 32),
-
-                // Identité
-                _buildSection('Identité', [
-                  _infoRow(Icons.badge, 'Nom complet:', '${utilisateur.nom} ${utilisateur.prenom}'),
+                _buildSection('INFORMATIONS PERSONNELLES', [
+                  _infoRow(Icons.person, 'Nom complet', '${utilisateur.nom} ${utilisateur.prenom}'),
+                  _infoRow(Icons.email, 'Email', utilisateur.email),
+                  _infoRow(Icons.phone, 'Téléphone', utilisateur.numeroTelephone.isNotEmpty ? utilisateur.numeroTelephone : '-'),
+                  _infoRow(Icons.home, 'Adresse', utilisateur.adresse.isNotEmpty ? utilisateur.adresse : '-'),
+                  _infoRow(Icons.class_, 'Classe', classeNom),
                 ]),
-
-                // Contact
-                _buildSection('Contact', [
-                  _infoRow(Icons.email, 'Email:', utilisateur.email),
-                  _infoRow(Icons.phone, 'Téléphone:', utilisateur.numeroTelephone.isNotEmpty ? utilisateur.numeroTelephone : '-'),
-                  _infoRow(Icons.home, 'Adresse:', utilisateur.adresse.isNotEmpty ? utilisateur.adresse : '-'),
-                ]),
-
-                // Classe
-                _buildSection('Classe', [
-                  _infoRow(Icons.class_, 'Nom:', classeNom),
-                ]),
-
-                // Statut
-                _buildSection('Statut', [
-                  _infoRow(Icons.check_circle_outline, 'État:', utilisateur.statut ? 'En ligne' : 'Hors ligne'),
-                ]),
+                // _buildSection('INFORMATIONS ÉLÈVE', [
+                //   _infoRow(Icons.cake, 'Date de naissance', eleve.dateNaissance),
+                //   _infoRow(Icons.wc, 'Sexe', eleve.sexe),
+                //   _infoRow(Icons.school, 'Niveau', eleve.niveauScolaire),
+                //   // Ajoute d'autres champs de EleveModele si besoin
+                // ]),
               ],
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

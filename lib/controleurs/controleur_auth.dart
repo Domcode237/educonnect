@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:educonnect/coeur/services/service_auth.dart';
@@ -20,7 +20,9 @@ class RoleModele {
     final description = data['description'] as String?;
 
     if (nom == null || description == null) {
-      throw ArgumentError('Les champs "nom" et "description" sont obligatoires.');
+      throw ArgumentError(
+        'Les champs "nom" et "description" sont obligatoires.',
+      );
     }
 
     return RoleModele(
@@ -38,9 +40,7 @@ class RoleModele {
   }
 
   @override
-  String toString() {
-    return 'RoleModele(id: $id, nom: $nom, description: $description)';
-  }
+  String toString() => 'RoleModele(id: $id, nom: $nom)';
 }
 
 /// Enumération pour suivre l'état de l'authentification
@@ -60,98 +60,93 @@ class ControleurAuth extends ChangeNotifier {
   StatutConnexion statut = StatutConnexion.deconnecte;
   String? messageErreur;
 
-  /// Connexion de l'utilisateur
+  /// Connexion
   Future<bool> connecter(String email, String motDePasse) async {
     statut = StatutConnexion.enCours;
     messageErreur = null;
     notifyListeners();
 
-    final user = await _serviceAuth.connecter(email, motDePasse);
+    try {
+      final user = await _serviceAuth.connecter(email, motDePasse);
 
-    if (user != null) {
+      if (user == null) {
+        messageErreur = "Échec de la connexion. Vérifie tes identifiants.";
+        statut = StatutConnexion.erreur;
+        notifyListeners();
+        return false;
+      }
+
       utilisateurFirebase = user;
 
-      try {
-        // 🔍 Étape 1 : Récupérer le document utilisateur
-        final userDoc = await FirebaseFirestore.instance
-            .collection('utilisateurs')
-            .doc(user.uid)
-            .get();
+      // Met à jour le statut à true dans Firestore (similaire à logoutUser)
+      await FirebaseFirestore.instance
+          .collection('utilisateurs')
+          .doc(user.uid)
+          .update({'statut': true});
 
-        if (!userDoc.exists) {
-          throw Exception("Utilisateur introuvable dans Firestore.");
-        }
+      // Récupère le rôle
+      final userDoc = await FirebaseFirestore.instance
+          .collection('utilisateurs')
+          .doc(user.uid)
+          .get();
 
-        final data = userDoc.data();
-        final roleId = data?['roleId'];
-
-        if (roleId == null) {
-          throw Exception("Le champ 'roleId' est manquant.");
-        }
-
-        // 📂 Étape 2 : Récupérer le document du rôle
-        final roleDoc = await FirebaseFirestore.instance
-            .collection('roles')
-            .doc(roleId)
-            .get();
-
-        if (!roleDoc.exists) {
-          throw Exception("Rôle introuvable pour l'id : $roleId");
-        }
-
-        final roleData = roleDoc.data();
-        final nomRole = roleData?['nom'];
-        final description = roleData?['description'] ?? '';
-
-        if (nomRole == null) {
-          throw Exception("Le champ 'nom' du rôle est manquant.");
-        }
-
-        // 🧠 Étape 3 : Stocker les infos du rôle
-        role = RoleModele(
-          id: roleId,
-          nom: nomRole,
-          description: description,
-        );
-
-        // ✅ Étape 4 : Mettre l'utilisateur en ligne
-        await FirebaseFirestore.instance
-            .collection('utilisateurs')
-            .doc(user.uid)
-            .update({'statut': true});
-
-        statut = StatutConnexion.connecte;
-        notifyListeners();
-        return true;
-      } catch (e) {
-        messageErreur = e.toString();
+      if (!userDoc.exists) {
+        throw Exception("Utilisateur introuvable dans Firestore");
       }
-    } else {
-      messageErreur = 'Échec de la connexion. Vérifie tes identifiants.';
-    }
 
-    utilisateurFirebase = null;
-    role = null;
-    statut = StatutConnexion.erreur;
-    notifyListeners();
-    return false;
+      final data = userDoc.data()!;
+      final roleId = data['roleId'];
+      if (roleId == null) throw Exception("Le champ 'roleId' est manquant.");
+
+      final roleDoc = await FirebaseFirestore.instance
+          .collection('roles')
+          .doc(roleId)
+          .get();
+
+      if (!roleDoc.exists) throw Exception("Rôle introuvable pour l'id: $roleId");
+
+      final roleData = roleDoc.data()!;
+      role = RoleModele(
+        id: roleDoc.id,
+        nom: roleData['nom'],
+        description: roleData['description'] ?? '',
+      );
+
+      statut = StatutConnexion.connecte;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      messageErreur = e.toString();
+      statut = StatutConnexion.erreur;
+      utilisateurFirebase = null;
+      role = null;
+      notifyListeners();
+      return false;
+    }
   }
 
   /// Déconnexion
   Future<void> deconnecter() async {
-    if (utilisateurFirebase != null) {
-      // ✅ Mettre statut = false (utilisateur hors ligne)
-      await FirebaseFirestore.instance
-          .collection('utilisateurs')
-          .doc(utilisateurFirebase!.uid)
-          .update({'statut': false});
-    }
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        await FirebaseFirestore.instance
+            .collection('utilisateurs')
+            .doc(user.uid)
+            .update({'statut': false});
+      }
 
-    await _serviceAuth.deconnecter();
-    utilisateurFirebase = null;
-    role = null;
-    statut = StatutConnexion.deconnecte;
-    messageErreur = null;
-    notifyListeners();
+      await _serviceAuth.deconnecter();
+
+      utilisateurFirebase = null;
+      role = null;
+      statut = StatutConnexion.deconnecte;
+      messageErreur = null;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Erreur de déconnexion dans ControleurAuth : $e');
+      messageErreur = "Erreur pendant la déconnexion : $e";
+      notifyListeners();
+    }
   }
 }

@@ -6,12 +6,18 @@ class DepotUtilisateur {
 
   // ✅ Ajouter un utilisateur
   Future<void> ajouterUtilisateur(UtilisateurModele utilisateur) async {
-    await _db.collection('utilisateurs').doc(utilisateur.id).set(utilisateur.toMap());
+    await _db
+        .collection('utilisateurs')
+        .doc(utilisateur.id)
+        .set(utilisateur.toMap());
   }
 
   // 🔁 Modifier un utilisateur
   Future<void> modifierUtilisateur(String id, UtilisateurModele utilisateur) async {
-    await _db.collection('utilisateurs').doc(id).update(utilisateur.toMap());
+    await _db
+        .collection('utilisateurs')
+        .doc(id)
+        .update(utilisateur.toMap());
   }
 
   // ❌ Supprimer un utilisateur
@@ -24,8 +30,7 @@ class DepotUtilisateur {
     final snapshot = await _db.collection('utilisateurs').get();
 
     return snapshot.docs.map((doc) {
-      final data = doc.data();
-      return UtilisateurModele.fromMap(data, doc.id);
+      return UtilisateurModele.fromMap(doc.data(), doc.id);
     }).toList();
   }
 
@@ -46,6 +51,8 @@ class DepotUtilisateur {
         .where('etablissementId', isEqualTo: etabId)
         .get();
 
-    return snapshot.docs.map((doc) => UtilisateurModele.fromMap(doc.data(), doc.id)).toList();
+    return snapshot.docs
+        .map((doc) => UtilisateurModele.fromMap(doc.data(), doc.id))
+        .toList();
   }
 }

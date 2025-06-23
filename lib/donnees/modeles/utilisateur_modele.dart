@@ -7,8 +7,9 @@ class UtilisateurModele {
   final String adresse;
   final String motDePasse;
   final bool statut;
-  final String roleId; // Juste l'ID du rôle
-  final String etablissementId; // Juste l'ID de l'établissement
+  final String roleId;
+  final String etablissementId;
+  final String? photo; 
 
   UtilisateurModele({
     required this.id,
@@ -21,6 +22,7 @@ class UtilisateurModele {
     required this.statut,
     required this.roleId,
     required this.etablissementId,
+    this.photo,
   });
 
   factory UtilisateurModele.fromMap(Map<String, dynamic> map, String id) {
@@ -35,6 +37,7 @@ class UtilisateurModele {
       statut: map['statut'] ?? true,
       roleId: map['roleId'] ?? '',
       etablissementId: map['etablissementId'] ?? '',
+      photo: map['photo'], 
     );
   }
 
@@ -49,11 +52,27 @@ class UtilisateurModele {
       'statut': statut,
       'roleId': roleId,
       'etablissementId': etablissementId,
+      'photo': photo, 
     };
   }
 
   @override
   String toString() {
-    return 'Utilisateur(id: $id, nom: $nom, prenom: $prenom, roleId: $roleId, etablissementId: $etablissementId)';
+    return 'Utilisateur(id: $id, nom: $nom, prenom: $prenom, roleId: $roleId, etablissementId: $etablissementId, photo: $photo)';
   }
+
+  /// Méthode statique pour retourner un utilisateur vide (valeurs par défaut)
+  static UtilisateurModele empty() => UtilisateurModele(
+        id: '',
+        nom: '',
+        prenom: '',
+        email: '',
+        numeroTelephone: '',
+        adresse: '',
+        motDePasse: '',  // champ requis
+        statut: false,
+        roleId: '',
+        etablissementId: '',
+        photo: null, // nullable
+      );
 }

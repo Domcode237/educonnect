@@ -46,32 +46,51 @@ class _ModificationEleveVueState extends State<ModificationEleveVue> {
   }
 
   Future<void> _chargerDonneesEleve() async {
-    setState(() => _loading = true);
-    try {
-      final snapshot = await FirebaseFirestore.instance.collection('eleves').doc(widget.eleveId).get();
-      if (snapshot.exists) {
-        final data = snapshot.data()!;
-        _nomController.text = data['nom'] ?? '';
-        _prenomController.text = data['prenom'] ?? '';
-        _emailController.text = data['email'] ?? '';
-        _telephoneController.text = data['numeroTelephone'] ?? '';
-        _adresseController.text = data['adresse'] ?? '';
-        _classeIdSelectionnee = data['classeId'];
-
-        await _chargerClasses(data['etablissementId']);
-      } else {
-        _afficherMessage("Erreur", "Élève introuvable", DialogType.error, onOk: () {
-          Navigator.pop(context);
-        });
-      }
-    } catch (e) {
-      _afficherMessage("Erreur", "Erreur lors du chargement : $e", DialogType.error, onOk: () {
+  setState(() => _loading = true);
+  try {
+    final eleveSnapshot = await FirebaseFirestore.instance.collection('eleves').doc(widget.eleveId).get();
+    if (!eleveSnapshot.exists) {
+      _afficherMessage("Erreur", "Élève introuvable", DialogType.error, onOk: () {
         Navigator.pop(context);
       });
-    } finally {
-      setState(() => _loading = false);
+      return;
     }
+
+    final eleveData = eleveSnapshot.data()!;
+    _classeIdSelectionnee = eleveData['classeId'];
+
+    // Récupérer l'id utilisateur lié
+    final String utilisateurId = eleveData['utilisateurId'];
+
+    // Charger les infos utilisateur
+    final utilisateurSnapshot = await FirebaseFirestore.instance.collection('utilisateurs').doc(utilisateurId).get();
+
+    if (!utilisateurSnapshot.exists) {
+      _afficherMessage("Erreur", "Utilisateur lié introuvable", DialogType.error, onOk: () {
+        Navigator.pop(context);
+      });
+      return;
+    }
+
+    final utilisateurData = utilisateurSnapshot.data()!;
+
+    _nomController.text = utilisateurData['nom'] ?? '';
+    _prenomController.text = utilisateurData['prenom'] ?? '';
+    _emailController.text = utilisateurData['email'] ?? '';
+    _telephoneController.text = utilisateurData['numeroTelephone'] ?? '';
+    _adresseController.text = utilisateurData['adresse'] ?? '';
+
+    // Charger classes avec l'id d'établissement de l'utilisateur
+    await _chargerClasses(utilisateurData['etablissementId']);
+  } catch (e) {
+    _afficherMessage("Erreur", "Erreur lors du chargement : $e", DialogType.error, onOk: () {
+      Navigator.pop(context);
+    });
+  } finally {
+    setState(() => _loading = false);
   }
+}
+
 
   Future<void> _chargerClasses(String etablissementId) async {
     final snapshot = await FirebaseFirestore.instance
