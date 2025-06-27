@@ -63,7 +63,8 @@ class _AjoutEleveVueState extends State<AjoutEleveVue> {
     }
 
     try {
-      final snapshot = await FirebaseFirestore.instance.collection('etablissements').doc(widget.etablissementId).get();
+      final id = widget.etablissementId.trim();
+      final snapshot = await FirebaseFirestore.instance.collection('etablissements').doc(id).get();
       if (snapshot.exists) {
         setState(() {
           _etablissement = snapshot.data();
@@ -214,6 +215,18 @@ class _AjoutEleveVueState extends State<AjoutEleveVue> {
       };
 
       await FirebaseFirestore.instance.collection('eleves').doc(userId).set(eleveData);
+
+      // ** AJOUTER L'ID DE L'ELEVE DANS LA LISTE elevesIds DE LA CLASSE **
+      final classeRef = FirebaseFirestore.instance.collection('classes').doc(_classeIdSelectionne);
+      final classeSnapshot = await classeRef.get();
+      if (classeSnapshot.exists) {
+        final classeData = classeSnapshot.data()!;
+        List<dynamic> elevesIds = classeData['elevesIds'] ?? [];
+        if (!elevesIds.contains(userId)) {
+          elevesIds.add(userId);
+          await classeRef.update({'elevesIds': elevesIds});
+        }
+      }
 
       _afficherMessage("Succès", "Élève ajouté avec succès", DialogType.success);
       _formKey.currentState?.reset();

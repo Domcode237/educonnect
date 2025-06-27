@@ -1,187 +1,281 @@
-voici mon model utilisateur:class UtilisateurModele {
-  final String id;
-  final String nom;
-  final String prenom;
-  final String email;
-  final String numeroTelephone;
-  final String adresse;
-  final String motDePasse;
-  final bool statut;
-  final String roleId;
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:educonnect/donnees/modeles/utilisateur_modele.dart';
+import 'package:educonnect/donnees/modeles/EnseignantModele.dart';
+import 'page_message_detail.dart';
+import 'package:educonnect/main.dart';
+
+class MessagerieParentPage extends StatefulWidget {
+  final String utilisateurId;
   final String etablissementId;
-  final String? photo; 
+  final String parentId;
 
-  UtilisateurModele({
-    required this.id,
-    required this.nom,
-    required this.prenom,
-    required this.email,
-    required this.numeroTelephone,
-    required this.adresse,
-    required this.motDePasse,
-    required this.statut,
-    required this.roleId,
+  const MessagerieParentPage({
+    Key? key,
+    required this.utilisateurId,
     required this.etablissementId,
-    this.photo,
-  });
-
-  factory UtilisateurModele.fromMap(Map<String, dynamic> map, String id) {
-    return UtilisateurModele(
-      id: id,
-      nom: map['nom'] ?? '',
-      prenom: map['prenom'] ?? '',
-      email: map['email'] ?? '',
-      numeroTelephone: map['numeroTelephone'] ?? '',
-      adresse: map['adresse'] ?? '',
-      motDePasse: map['motDePasse'] ?? '',
-      statut: map['statut'] ?? true,
-      roleId: map['roleId'] ?? '',
-      etablissementId: map['etablissementId'] ?? '',
-      photo: map['photo'], 
-    );
-  }
-
-  Map<String, dynamic> toMap() {
-    return {
-      'nom': nom,
-      'prenom': prenom,
-      'email': email,
-      'numeroTelephone': numeroTelephone,
-      'adresse': adresse,
-      'motDePasse': motDePasse,
-      'statut': statut,
-      'roleId': roleId,
-      'etablissementId': etablissementId,
-      'photo': photo, 
-    };
-  }
+    required this.parentId,
+  }) : super(key: key);
 
   @override
-  String toString() {
-    return 'Utilisateur(id: $id, nom: $nom, prenom: $prenom, roleId: $roleId, etablissementId: $etablissementId, photo: $photo)';
+  State<MessagerieParentPage> createState() => _MessagerieParentPageState();
+}
+
+class _MessagerieParentPageState extends State<MessagerieParentPage> {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  Map<String, UtilisateurModele> utilisateursMap = {};
+  Map<String, List<String>> matieresParEnseignant = {};
+  List<EnseignantModele> enseignants = [];
+
+  bool isLoading = true;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadInitialData();
   }
-}voici pour le role:class RoleModele {
-  final String id;
-  final String nom;
-  final String description;
 
-  RoleModele({
-    required this.id,
-    required this.nom,
-    required this.description,
-  });
+  Future<void> _loadInitialData() async {
+    try {
+      final enseignantsSnapshot = await _firestore.collection('enseignants').get();
+      enseignants = enseignantsSnapshot.docs
+          .map((doc) => EnseignantModele.fromMap(doc.data(), doc.id))
+          .toList();
 
-  factory RoleModele.fromMap(Map<String, dynamic> data, String documentId) {
-    final nom = data['nom'] as String?;
-    final description = data['description'] as String?;
+      final utilisateurIds = enseignants.map((e) => e.utilisateurId).toSet().toList();
 
-    if (nom == null || description == null) {
-      throw ArgumentError('Les champs "nom" et "description" doivent être non nuls dans les données.');
+      final utilisateursSnapshot = await _firestore
+          .collection('utilisateurs')
+          .where(FieldPath.documentId, whereIn: utilisateurIds)
+          .where('etablissementId', isEqualTo: widget.etablissementId)
+          .get();
+
+      utilisateursMap = {
+        for (var doc in utilisateursSnapshot.docs)
+          doc.id: UtilisateurModele.fromMap(doc.data(), doc.id)
+      };
+
+      enseignants = enseignants.where((e) => utilisateursMap.containsKey(e.utilisateurId)).toList();
+
+      await _loadMatieres();
+
+      setState(() => isLoading = false);
+    } catch (e, st) {
+      print('❌ Erreur chargement init : $e\n$st');
+      setState(() {
+        error = e.toString();
+        isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _loadMatieres() async {
+    final enseignantIds = enseignants.map((e) => e.id).toList();
+    if (enseignantIds.isEmpty) return;
+
+    final enseignementsSnapshot = await _firestore
+        .collection('enseignements')
+        .where('enseignantId', whereIn: enseignantIds)
+        .get();
+
+    final matiereIds = enseignementsSnapshot.docs
+        .map((doc) => doc.data()['matiereId'] as String?)
+        .whereType<String>()
+        .toSet()
+        .toList();
+
+    final matieresSnapshot = await _firestore
+        .collection('matieres')
+        .where(FieldPath.documentId, whereIn: matiereIds)
+        .get();
+
+    final matieresMap = {
+      for (var doc in matieresSnapshot.docs)
+        doc.id: (doc.data()['nom'] ?? 'Inconnu') as String
+    };
+
+    final mapTemp = <String, List<String>>{};
+    for (var doc in enseignementsSnapshot.docs) {
+      final data = doc.data();
+      final enseignantId = data['enseignantId'];
+      final matiereId = data['matiereId'];
+      if (enseignantId == null || matiereId == null) continue;
+
+      final matiereNom = matieresMap[matiereId] ?? 'Inconnu';
+      mapTemp.putIfAbsent(enseignantId, () => []).add(matiereNom);
     }
 
-    return RoleModele(
-      id: documentId,
-      nom: nom,
-      description: description,
-    );
+    matieresParEnseignant = mapTemp;
   }
 
-  Map<String, dynamic> toMap() {
-    return {
-      'nom': nom,
-      'description': description,
-    };
+  String? _getAppwriteImageUrl(String? fileId) {
+    if (fileId == null || fileId.isEmpty) return null;
+    const bucketId = '6854df330032c7be516c';
+    return '${appwriteClient.endPoint}/storage/buckets/$bucketId/files/$fileId/view?project=${appwriteClient.config['project']}';
   }
 
   @override
-  String toString() {
-    return 'RoleModele(id: $id, nom: $nom, description: $description)';
-  }
-}et voici pour administrateur:/// Modèle représentant un administrateur dans la base de données Firestore.
-/// Chaque administrateur est lié à un utilisateur existant dans la collection "utilisateurs".
-class AdministrateurModele {
-  /// ID du document Firestore dans la collection "administrateurs".
-  final String id;
+  Widget build(BuildContext context) {
+    if (isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
 
-  /// ID de l'utilisateur associé à cet administrateur (clé étrangère).
-  final String utilisateurId;
+    if (error != null) {
+      return Scaffold(body: Center(child: Text("Erreur : $error")));
+    }
 
-  /// Constructeur principal utilisant des paramètres nommés.
-  AdministrateurModele({required this.id, required this.utilisateurId});
+    return Scaffold(
+      body: StreamBuilder<QuerySnapshot>(
+        stream: _firestore
+            .collection('messages')
+            .where('participants', arrayContains: widget.parentId)
+            .orderBy('dateEnvoi', descending: true)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            final err = snapshot.error.toString();
+            if (err.contains('FAILED_PRECONDITION') && err.contains('create index')) {
+              final regex = RegExp(r'https:\/\/console\.firebase\.google\.com\S+');
+              final match = regex.firstMatch(err);
+              if (match != null) {
+                final indexUrl = match.group(0);
+                print("📣❗️Firestore nécessite un index pour cette requête !");
+                print("🔗 Cliquez ou copiez ce lien dans votre navigateur pour créer l’index :");
+                print("👉 $indexUrl");
+              } else {
+                print("⚠️ Erreur d'index détectée, mais le lien n'a pas pu être extrait automatiquement.");
+                print("➡️ Vérifie le message d’erreur complet ci-dessous :");
+                print(err);
+              }
+            } else {
+              print('❌ Erreur inconnue dans StreamBuilder : $err');
+            }
+            return Center(child: Text("Erreur : $err"));
+          }
 
-  /// Factory permettant de créer une instance d'AdministrateurModele à partir
-  /// d'une map (généralement issue de Firestore) et de l'ID du document Firestore.
-  factory AdministrateurModele.fromMap(Map<String, dynamic> map, String id) {
-    return AdministrateurModele(
-      id: id,
-      utilisateurId: map['utilisateurId'] as String,
+          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+
+          final docs = snapshot.data!.docs;
+          final Map<String, Map<String, dynamic>> dernierMessage = {};
+          final Map<String, int> nbMessagesNonLus = {};
+
+          for (var doc in docs) {
+            final data = doc.data() as Map<String, dynamic>;
+            final emetteurId = data['emetteurId'] ?? '';
+            final recepteurId = data['recepteurId'] ?? '';
+            final date = (data['dateEnvoi'] as Timestamp?)?.toDate();
+            final message = data['contenu'] ?? '';
+            final lu = data['lu'] ?? true;
+
+            final autreId = emetteurId == widget.parentId ? recepteurId : emetteurId;
+
+            print("📨 message: de=$emetteurId à=$recepteurId contenu=$message");
+
+            if (!enseignants.any((e) => e.id == autreId)) continue;
+
+            if (dernierMessage[autreId] == null ||
+                (date != null && date.isAfter(dernierMessage[autreId]?['date'] ?? DateTime(0)))) {
+              dernierMessage[autreId] = {'message': message, 'date': date};
+            }
+
+            if (recepteurId == widget.parentId && !lu) {
+              nbMessagesNonLus[autreId] = (nbMessagesNonLus[autreId] ?? 0) + 1;
+            }
+          }
+
+          final enseignantsTrie = List<EnseignantModele>.from(enseignants);
+          enseignantsTrie.sort((a, b) {
+            final dateA = dernierMessage[a.id]?['date'] ?? DateTime(2000);
+            final dateB = dernierMessage[b.id]?['date'] ?? DateTime(2000);
+            return dateB.compareTo(dateA);
+          });
+
+          if (enseignantsTrie.isEmpty) {
+            return const Center(child: Text("Aucun message trouvé"));
+          }
+
+          return ListView.separated(
+            padding: const EdgeInsets.all(12),
+            itemCount: enseignantsTrie.length,
+            separatorBuilder: (_, __) => const Divider(),
+            itemBuilder: (context, index) {
+              final enseignant = enseignantsTrie[index];
+              final utilisateur = utilisateursMap[enseignant.utilisateurId];
+              if (utilisateur == null) return const SizedBox();
+
+              final matieres = matieresParEnseignant[enseignant.id] ?? [];
+              final photoUrl = _getAppwriteImageUrl(utilisateur.photo);
+              final statutColor = utilisateur.statut ? Colors.green : Colors.grey;
+              final message = dernierMessage[enseignant.id]?['message'] ?? 'Aucun message';
+              final nbNonLus = nbMessagesNonLus[enseignant.id] ?? 0;
+
+              return ListTile(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PageMessageDetailParent(
+                        parentId: widget.parentId,
+                        enseignantId: enseignant.id,
+                        enseignantNom: '${utilisateur.prenom} ${utilisateur.nom}',
+                        enseignantPhotoFileId: utilisateur.photo,
+                      ),
+                    ),
+                  );
+                },
+                leading: Stack(
+                  children: [
+                    CircleAvatar(
+                      radius: 28,
+                      backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
+                      backgroundColor: Colors.grey.shade300,
+                      child: photoUrl == null
+                          ? const Icon(Icons.person, color: Colors.white)
+                          : null,
+                    ),
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: statutColor,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
+                        ),
+                      ),
+                    )
+                  ],
+                ),
+                title: Text('${utilisateur.prenom} ${utilisateur.nom}',
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(message, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    if (matieres.isNotEmpty)
+                      Text("Matières : ${matieres.join(', ')}",
+                          style: const TextStyle(fontSize: 12)),
+                  ],
+                ),
+                trailing: nbNonLus > 0
+                    ? CircleAvatar(
+                        radius: 12,
+                        backgroundColor: Colors.red,
+                        child: Text(
+                          '$nbNonLus',
+                          style: const TextStyle(color: Colors.white, fontSize: 12),
+                        ),
+                      )
+                    : const Icon(Icons.chat_bubble_outline),
+              );
+            },
+          );
+        },
+      ),
     );
   }
-
-  /// Convertit l'instance d'AdministrateurModele en une Map<String, dynamic>
-  /// à stocker dans Firestore ou à convertir en JSON.
-  ///
-  /// Ici, l'ID n'est pas inclus dans la Map car Firestore gère l'ID séparément.
-  Map<String, dynamic> toMap() {
-    return {
-      'utilisateurId': utilisateurId,
-    };
-  }
-} donc admin me contiend que l'id de l'utilisateur et je veux que a lieur d'aller cherche les informations dans administrateur tu recherche juste l'id du role don t le nom est administrateur et une fois sela fait tu recupere tout les utilisateurs qui ont se roleid et tu les affiches. et pour chaque utilisateur tu prent l'id de letablisement dans utilisateur et tu vas dans la collection etablisement pour recuperer le nom de l'etablisement en question . voici le model etablissement:class EtablissementModele {
-  final String id;
-  final String nom;
-  final String type;
-  final String description;
-  final String adresse;
-  final String ville;
-  final String region;
-  final String pays;
-  final String codePostal;
-  final String email;
-  final String telephone;
-
-  EtablissementModele({
-    required this.id,
-    required this.nom,
-    required this.type,
-    required this.description,
-    required this.adresse,
-    required this.ville,
-    required this.region,
-    required this.pays,
-    required this.codePostal,
-    required this.email,
-    required this.telephone,
-  });
-
-  factory EtablissementModele.fromMap(Map<String, dynamic> map, String id) {
-    return EtablissementModele(
-      id: id,
-      nom: map['nom'] ?? '',
-      type: map['type'] ?? '',
-      description: map['description'] ?? '',
-      adresse: map['adresse'] ?? '',
-      ville: map['ville'] ?? '',
-      region: map['region'] ?? '',
-      pays: map['pays'] ?? '',
-      codePostal: map['codePostal'] ?? '',
-      email: map['email'] ?? '',
-      telephone: map['telephone'] ?? '',
-    );
-  }
-
-  Map<String, dynamic> toMap() {
-    return {
-      'nom': nom,
-      'type': type,
-      'description': description,
-      'adresse': adresse,
-      'ville': ville,
-      'region': region,
-      'pays': pays,
-      'codePostal': codePostal,
-      'email': email,
-      'telephone': telephone,
-    };
-  }
-}donc produit moi le fichier complet pour afficher ces administrateur seleon la logique que jutilise ci-haut. donne moi un fichier complet et en maintenent le disign suivent:
+}

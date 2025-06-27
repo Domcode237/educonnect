@@ -5,6 +5,7 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   desktop_webview_auth
   desktop_webview_window
+  emoji_picker_flutter
   file_selector_linux
   rive_common
   url_launcher_linux

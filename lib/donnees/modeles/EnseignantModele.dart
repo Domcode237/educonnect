@@ -1,29 +1,24 @@
-import 'package:educonnect/donnees/modeles/utilisateur_modele.dart';
-
 class EnseignantModele {
-  final UtilisateurModele utilisateur;
-  final List<String> matieres; // ID des matières
-  final List<String> classes;  // ID des classes
+  final String id;
+  final String utilisateurId;
 
   EnseignantModele({
-    required this.utilisateur,
-    required this.matieres,
-    required this.classes,
+    required this.id,
+    required this.utilisateurId,
   });
 
+  // Convertir depuis Firestore
   factory EnseignantModele.fromMap(Map<String, dynamic> map, String id) {
     return EnseignantModele(
-      utilisateur: UtilisateurModele.fromMap(map, id),
-      matieres: List<String>.from(map['matieres'] ?? []),
-      classes: List<String>.from(map['classes'] ?? []),
+      id: id,
+      utilisateurId: map['utilisateurId'] ?? '',
     );
   }
 
+  // Convertir en map pour l'enregistrement
   Map<String, dynamic> toMap() {
     return {
-      ...utilisateur.toMap(),
-      'matieres': matieres,
-      'classes': classes,
+      'utilisateurId': utilisateurId,
     };
   }
 }

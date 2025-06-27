@@ -8,13 +8,11 @@ import 'package:educonnect/donnees/depots/depos_famille.dart';
 class EleveUtilisateur {
   final EleveModele eleve;
   final UtilisateurModele utilisateur;
-
   EleveUtilisateur({required this.eleve, required this.utilisateur});
 }
 
 class LierParentEnfantVue extends StatefulWidget {
   final String parentId;
-
   const LierParentEnfantVue({Key? key, required this.parentId}) : super(key: key);
 
   @override
@@ -23,17 +21,11 @@ class LierParentEnfantVue extends StatefulWidget {
 
 class _LierParentEnfantVueState extends State<LierParentEnfantVue> {
   final DepotFamille _depotFamille = DepotFamille();
-
   List<ClasseModele> classes = [];
   String? selectedClasseId;
-
-  List<UtilisateurModele> utilisateursEleves = [];
-  List<EleveModele> elevesModele = [];
   List<EleveUtilisateur> elevesUtilisateurs = [];
   List<EleveUtilisateur> filteredElevesUtilisateurs = [];
-
   String searchQuery = '';
-
   bool isLoading = true;
   String? etablissementId;
 
@@ -45,205 +37,172 @@ class _LierParentEnfantVueState extends State<LierParentEnfantVue> {
 
   Future<void> _initData() async {
     try {
-      // 1. Récupérer parent et utilisateur pour avoir etablissementId
       final parentDoc = await FirebaseFirestore.instance.collection('parents').doc(widget.parentId).get();
-      if (!parentDoc.exists) throw Exception("Parent non trouvé");
+      if (!parentDoc.exists) throw "Parent non trouvé";
 
-      final parentData = parentDoc.data()!;
-      final utilisateurId = parentData['utilisateurId'] as String;
+      final utilisateurId = parentDoc.data()!['utilisateurId'] as String;
+      final userDoc = await FirebaseFirestore.instance.collection('utilisateurs').doc(utilisateurId).get();
+      if (!userDoc.exists) throw "Utilisateur parent non trouvé";
 
-      final utilisateurDoc = await FirebaseFirestore.instance.collection('utilisateurs').doc(utilisateurId).get();
-      if (!utilisateurDoc.exists) throw Exception("Utilisateur parent non trouvé");
+      etablissementId = userDoc.data()!['etablissementId'] as String?;
+      if (etablissementId == null) throw "Établissement introuvable";
 
-      final utilisateurData = utilisateurDoc.data()!;
-      etablissementId = utilisateurData['etablissementId'] as String?;
-
-      if (etablissementId == null) throw Exception("EtablissementId introuvable");
-
-      // 2. Charger classes de l'établissement
-      final classesSnapshot = await FirebaseFirestore.instance
+      final clsSnap = await FirebaseFirestore.instance
           .collection('classes')
           .where('etablissementId', isEqualTo: etablissementId)
           .get();
+      classes = clsSnap.docs.map((d) => ClasseModele.fromMap(d.data(), d.id)).toList();
 
-      classes = classesSnapshot.docs
-          .map((doc) => ClasseModele.fromMap(doc.data(), doc.id))
-          .toList();
+      await _loadEleves();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur: $e")));
+    } finally {
+      setState(() => isLoading = false);
+    }
+  }
 
-      // 3. Charger utilisateurs ayant rôle 'eleve' et etablissementId donné
-      final utilisateursSnapshot = await FirebaseFirestore.instance
+  Future<String?> _getEleveRoleId() async {
+    final roleSnap = await FirebaseFirestore.instance
+        .collection('roles')
+        .where('nom', isEqualTo: 'eleve')
+        .limit(1)
+        .get();
+    if (roleSnap.docs.isNotEmpty) {
+      return roleSnap.docs.first.id;
+    }
+    return null;
+  }
+
+  Future<void> _loadEleves() async {
+    setState(() => isLoading = true);
+    try {
+      final roleId = await _getEleveRoleId();
+      if (roleId == null) throw "Rôle 'eleve' introuvable.";
+
+      final userSnap = await FirebaseFirestore.instance
           .collection('utilisateurs')
           .where('etablissementId', isEqualTo: etablissementId)
-          .where('roleId', isEqualTo: 'eleve')
+          .where('roleId', isEqualTo: roleId)
           .get();
+      final users = userSnap.docs.map((d) => UtilisateurModele.fromMap(d.data(), d.id)).toList();
+      final uIds = users.map((u) => u.id).toList();
 
-      utilisateursEleves = utilisateursSnapshot.docs
-          .map((doc) => UtilisateurModele.fromMap(doc.data(), doc.id))
-          .toList();
-
-      // 4. Charger Eleves (EleveModele) avec utilisateurId dans la liste des utilisateurs chargés
-      List<String> utilisateurIds = utilisateursEleves.map((u) => u.id).toList();
-
-      elevesModele = [];
-
-      // Firestore whereIn supporte max 10 éléments donc batch
-      for (int i = 0; i < utilisateurIds.length; i += 10) {
-        final batch = utilisateurIds.sublist(i, (i + 10) > utilisateurIds.length ? utilisateurIds.length : i + 10);
-        final elevesSnapshot = await FirebaseFirestore.instance
+      List<EleveModele> eModels = [];
+      for (int i = 0; i < uIds.length; i += 10) {
+        final batch = uIds.sublist(i, (i + 10 > uIds.length) ? uIds.length : i + 10);
+        var query = FirebaseFirestore.instance
             .collection('eleves')
-            .where('utilisateurId', whereIn: batch)
-            .get();
-
-        elevesModele.addAll(elevesSnapshot.docs.map((doc) => EleveModele.fromMap(doc.data() as Map<String, dynamic>, doc.id)));
+            .where('utilisateurId', whereIn: batch);
+        if (selectedClasseId?.isNotEmpty ?? false) {
+          query = query.where('classeId', isEqualTo: selectedClasseId);
+        }
+        final snap = await query.get();
+        eModels.addAll(snap.docs.map((d) => EleveModele.fromMap(d.data(), d.id)));
       }
 
-      // 5. Faire la jointure Eleve - Utilisateur
-      elevesUtilisateurs = elevesModele.map((eleve) {
-        final utilisateur = utilisateursEleves.firstWhere((u) => u.id == eleve.utilisateurId, orElse: () => UtilisateurModele.empty());
-        return EleveUtilisateur(eleve: eleve, utilisateur: utilisateur);
+      elevesUtilisateurs = eModels.map((e) {
+        final u = users.firstWhere((u) => u.id == e.utilisateurId, orElse: () => UtilisateurRoleEmpty());
+        return EleveUtilisateur(eleve: e, utilisateur: u);
       }).toList();
 
       _applyFilters();
-
-      setState(() {
-        isLoading = false;
-      });
     } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur chargement : $e")));
+    } finally {
       setState(() => isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Erreur lors du chargement : $e")),
-      );
     }
   }
 
   void _applyFilters() {
+    filteredElevesUtilisateurs = elevesUtilisateurs.where((it) {
+      final mS = it.utilisateur.nom.toLowerCase().contains(searchQuery) ||
+          it.utilisateur.prenom.toLowerCase().contains(searchQuery);
+      return mS;
+    }).toList();
+  }
+
+  void _onSearchChanged(String v) {
     setState(() {
-      filteredElevesUtilisateurs = elevesUtilisateurs.where((item) {
-        final classeMatch = selectedClasseId == null || selectedClasseId!.isEmpty || item.eleve.classeId == selectedClasseId;
-        final searchMatch = searchQuery.isEmpty ||
-            item.utilisateur.nom.toLowerCase().contains(searchQuery) ||
-            item.utilisateur.prenom.toLowerCase().contains(searchQuery);
-        return classeMatch && searchMatch;
-      }).toList();
+      searchQuery = v.toLowerCase();
+      _applyFilters();
     });
   }
 
-  void _onSearchChanged(String val) {
-    searchQuery = val.toLowerCase();
-    _applyFilters();
-  }
-
   void _onClasseChanged(String? val) {
-    selectedClasseId = val;
-    _applyFilters();
+    setState(() {
+      selectedClasseId = val;
+      _loadEleves(); // Recharge avec filtre
+    });
   }
 
-  Future<void> _lierParentEleve(String eleveUtilisateurId) async {
+  Future<void> _lierParentEleve(String eleveDocId) async {
     try {
-      await _depotFamille.ajouterRelation(widget.parentId, eleveUtilisateurId);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Relation parent-enfant créée avec succès !")),
-      );
-      Navigator.of(context).pop(); // Retour à la page précédente
+      // eleveDocId est l'id du document 'eleves', pas de l'utilisateur
+      await _depotFamille.ajouterRelation(widget.parentId, eleveDocId);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Enfant lié ✅")));
+      Navigator.of(context).pop();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Erreur lors de la liaison : $e")),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur liaison : $e")));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Lier un enfant au parent"),
-        backgroundColor: Colors.blueAccent,
-      ),
+      appBar: AppBar(title: Text("Lier un enfant"), backgroundColor: Colors.blueAccent),
       body: isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? Center(child: CircularProgressIndicator())
           : Padding(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(16),
               child: Column(
                 children: [
-                  // Recherche avec auto-complétion
-                  Autocomplete<EleveUtilisateur>(
-                    optionsBuilder: (TextEditingValue textEditingValue) {
-                      if (textEditingValue.text.isEmpty) return const Iterable<EleveUtilisateur>.empty();
-                      final query = textEditingValue.text.toLowerCase();
-                      return filteredElevesUtilisateurs.where((item) =>
-                          item.utilisateur.nom.toLowerCase().startsWith(query) ||
-                          item.utilisateur.prenom.toLowerCase().startsWith(query));
-                    },
-                    displayStringForOption: (EleveUtilisateur option) => "${option.utilisateur.nom} ${option.utilisateur.prenom}",
-                    fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
-                      return TextField(
-                        controller: controller,
-                        focusNode: focusNode,
-                        decoration: InputDecoration(
-                          labelText: "Rechercher un élève",
-                          prefixIcon: const Icon(Icons.search),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        onChanged: _onSearchChanged,
-                      );
-                    },
-                    onSelected: (EleveUtilisateur selection) {
-                      _lierParentEleve(selection.utilisateur.id);
-                    },
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  // Filtre par classe
-                  DropdownButtonFormField<String>(
-                    value: selectedClasseId,
+                  TextField(
                     decoration: InputDecoration(
-                      labelText: "Filtrer par classe",
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      prefixIcon: const Icon(Icons.class_),
+                      labelText: "Rechercher (nom/prénom)",
+                      prefixIcon: Icon(Icons.search),
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: _onSearchChanged,
+                  ),
+                  SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    value: selectedClasseId == null || selectedClasseId == '' ? null : selectedClasseId,
+                    decoration: InputDecoration(
+                      labelText: "Classe (optionnel)",
+                      prefixIcon: Icon(Icons.class_),
+                      border: OutlineInputBorder(),
                     ),
                     items: [
-                      DropdownMenuItem(value: null, child: Text("Toutes les classes")),
-                      ...classes.map((classe) => DropdownMenuItem(
-                            value: classe.id,
-                            child: Text(classe.nom),
-                          )),
+                      DropdownMenuItem(value: null, child: Text("Toutes")),
+                      ...classes.map((c) => DropdownMenuItem(value: c.id, child: Text(c.nom))),
                     ],
                     onChanged: _onClasseChanged,
                   ),
-
-                  const SizedBox(height: 20),
-
-                  // Liste élèves filtrés
+                  SizedBox(height: 16),
                   Expanded(
                     child: filteredElevesUtilisateurs.isEmpty
-                        ? const Center(child: Text("Aucun élève trouvé avec ces critères"))
+                        ? Center(child: Text("Aucun élève trouvé."))
                         : ListView.builder(
                             itemCount: filteredElevesUtilisateurs.length,
-                            itemBuilder: (context, index) {
-                              final item = filteredElevesUtilisateurs[index];
-                              final classeNom = classes
-                                      .firstWhere(
-                                        (c) => c.id == item.eleve.classeId,
-                                        orElse: () => ClasseModele(id: '', nom: 'Inconnue', niveau: '', matieresIds: [], elevesIds: []),
-                                      )
-                                      .nom;
+                            itemBuilder: (_, i) {
+                              final it = filteredElevesUtilisateurs[i];
+                              final cn = classes.firstWhere(
+                                (c) => c.id == it.eleve.classeId,
+                                orElse: () => ClasseModele(id: "", nom: "Inconnue", niveau: "", matieresIds: [], elevesIds: []),
+                              ).nom;
 
-                              return Card(
-                                margin: const EdgeInsets.symmetric(vertical: 6),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                child: ListTile(
-                                  title: Text("${item.utilisateur.nom} ${item.utilisateur.prenom}"),
-                                  subtitle: Text("Classe : $classeNom"),
-                                  trailing: ElevatedButton(
-                                    child: const Text("Lier"),
-                                    onPressed: () => _lierParentEleve(item.utilisateur.id),
-                                  ),
+                              return ListTile(
+                                title: Text("${it.utilisateur.nom} ${it.utilisateur.prenom}"),
+                                subtitle: Text("Classe : $cn"),
+                                // <-- ici on passe l'id du document eleve (it.eleve.id) et non utilisateur.id
+                                trailing: ElevatedButton(
+                                  onPressed: () => _lierParentEleve(it.eleve.id),
+                                  child: Text("Lier"),
                                 ),
                               );
                             },
                           ),
-                  ),
+                  )
                 ],
               ),
             ),
@@ -251,19 +210,19 @@ class _LierParentEnfantVueState extends State<LierParentEnfantVue> {
   }
 }
 
-extension on UtilisateurModele {
-  /// Pour gérer le cas où aucun utilisateur n'est trouvé dans la jointure
-  static UtilisateurModele empty() => UtilisateurModele(
-        id: '',
-        nom: '',
-        prenom: '',
-        email: '',
-        numeroTelephone: '',
-        adresse: '',
-        motDePasse: '', // <-- ajouté ici
-        statut: false,
-        roleId: '',
-        etablissementId: '',
-        photo: null,  // optionnel, car nullable
-      );
+class UtilisateurRoleEmpty extends UtilisateurModele {
+  UtilisateurRoleEmpty()
+      : super(
+          id: '',
+          nom: '',
+          prenom: '',
+          email: '',
+          numeroTelephone: '',
+          adresse: '',
+          motDePasse: '',
+          statut: false,
+          roleId: '',
+          etablissementId: '',
+          photo: null,
+        );
 }

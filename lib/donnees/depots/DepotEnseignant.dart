@@ -1,31 +1,60 @@
-import 'package:educonnect/donnees/modeles/utilisateur_modele.dart';
-import 'package:educonnect/donnees/depots/depot_utilisateur.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:educonnect/donnees/modeles/EnseignantModele.dart';
 
 class DepotEnseignant {
-  final DepotUtilisateur _depotUtilisateur = DepotUtilisateur();
-  final String _role = 'enseignant';
+  final CollectionReference _enseignantsRef =
+      FirebaseFirestore.instance.collection('enseignants');
 
-  Future<void> ajouterEnseignant(UtilisateurModele enseignant) async {
-    assert(enseignant.roleId == _role, 'Le rôle doit être "enseignant"');
-    await _depotUtilisateur.ajouterUtilisateur(enseignant);
+  /// Ajouter un enseignant
+  Future<void> ajouterEnseignant(EnseignantModele enseignant) async {
+    await _enseignantsRef.add(enseignant.toMap());
+  }
+  
+
+  /// Modifier un enseignant (si besoin)
+  Future<void> modifierEnseignant(String id, EnseignantModele enseignant) async {
+    await _enseignantsRef.doc(id).update(enseignant.toMap());
   }
 
-  Future<void> modifierEnseignant(String id, UtilisateurModele enseignant) async {
-    assert(enseignant.roleId == _role, 'Le rôle doit être "enseignant"');
-    await _depotUtilisateur.modifierUtilisateur(id, enseignant);
-  }
-
+  /// Supprimer un enseignant
   Future<void> supprimerEnseignant(String id) async {
-    await _depotUtilisateur.supprimerUtilisateur(id);
+    await _enseignantsRef.doc(id).delete();
   }
 
-  Future<List<UtilisateurModele>> getTousLesEnseignants() async {
-    final tous = await _depotUtilisateur.getTousLesUtilisateurs();
-    return tous.where((u) => u.roleId == _role).toList();
+  /// Obtenir un enseignant par ID
+  Future<EnseignantModele?> getEnseignant(String id) async {
+    final doc = await _enseignantsRef.doc(id).get();
+    if (!doc.exists) return null;
+    return EnseignantModele.fromMap(doc.data() as Map<String, dynamic>, doc.id);
   }
 
-  Future<UtilisateurModele?> getEnseignantParId(String id) async {
-    final u = await _depotUtilisateur.getUtilisateurParId(id);
-    return (u != null && u.roleId == _role) ? u : null;
+  /// Obtenir tous les enseignants
+  Future<List<EnseignantModele>> getTousLesEnseignants() async {
+    final snap = await _enseignantsRef.get();
+    return snap.docs
+        .map((d) => EnseignantModele.fromMap(d.data() as Map<String, dynamic>, d.id))
+        .toList();
+  }
+
+  /// Obtenir les enseignants liés à un établissement via utilisateurId
+  Future<List<EnseignantModele>> getParEtablissement(String etablissementId) async {
+    final utilisateursSnap = await FirebaseFirestore.instance
+        .collection('utilisateurs')
+        .where('etablissementId', isEqualTo: etablissementId)
+        .get();
+
+    final uIds = utilisateursSnap.docs.map((u) => u.id).toList();
+    if (uIds.isEmpty) return [];
+
+    // Charger en lots de 10 max
+    List<EnseignantModele> enseignants = [];
+    for (int i = 0; i < uIds.length; i += 10) {
+      final batch = uIds.sublist(i, (i + 10 > uIds.length) ? uIds.length : i + 10);
+      final snap = await _enseignantsRef.where('utilisateurId', whereIn: batch).get();
+      enseignants.addAll(snap.docs.map((d) =>
+          EnseignantModele.fromMap(d.data() as Map<String, dynamic>, d.id)));
+    }
+
+    return enseignants;
   }
 }

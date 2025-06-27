@@ -6,6 +6,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   cloud_firestore
   desktop_webview_auth
   desktop_webview_window
+  emoji_picker_flutter
   file_selector_windows
   firebase_auth
   firebase_core

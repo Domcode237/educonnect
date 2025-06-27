@@ -5,7 +5,7 @@ import 'package:educonnect/donnees/modeles/utilisateur_modele.dart';
 import 'package:educonnect/donnees/modeles/ClasseModele.dart';
 import 'package:educonnect/donnees/modeles/EleveModele.dart';
 import 'package:educonnect/modules/admin/vues/ajouter_eleve.dart';
-import 'package:educonnect/main.dart';  // pour appwriteClient
+import 'package:educonnect/main.dart';
 
 class ListeEleves extends StatefulWidget {
   final String etablissementId;
@@ -19,43 +19,111 @@ class ListeEleves extends StatefulWidget {
 class _ListeElevesState extends State<ListeEleves> {
   String searchQuery = '';
   String? selectedClasseId;
-  List<Map<String, String>> classes = [];
-  bool isLoadingClasses = true;
+
+  List<ClasseModele> classes = [];
+  Map<String, UtilisateurModele> utilisateursMap = {};
+  Map<String, ClasseModele> classesMap = {};
+  List<EleveModele> eleves = [];
+
+  bool isLoading = true;
+  String? error;
 
   @override
   void initState() {
     super.initState();
-    _chargerClasses();
+    _chargerDonnees();
   }
 
-  Future<void> _chargerClasses() async {
+  Future<void> _chargerDonnees() async {
     try {
-      final snapshot = await FirebaseFirestore.instance
+      setState(() {
+        isLoading = true;
+        error = null;
+      });
+
+      // Charger les classes
+      final classesSnap = await FirebaseFirestore.instance
           .collection('classes')
           .where('etablissementId', isEqualTo: widget.etablissementId)
           .get();
 
-      List<Map<String, String>> loadedClasses = snapshot.docs
-          .map((doc) {
-            final classe = ClasseModele.fromMap(doc.data(), doc.id);
-            return {'id': classe.id, 'nom': classe.nom};
-          })
+      classes = classesSnap.docs
+          .map((doc) => ClasseModele.fromMap(doc.data(), doc.id))
           .toList();
 
+      classesMap = {for (var c in classes) c.id: c};
+
+      // Charger les utilisateurs de l'établissement
+      final usersSnap = await FirebaseFirestore.instance
+          .collection('utilisateurs')
+          .where('etablissementId', isEqualTo: widget.etablissementId)
+          .get();
+
+      utilisateursMap = {
+        for (var doc in usersSnap.docs)
+          doc.id: UtilisateurModele.fromMap(doc.data() as Map<String, dynamic>, doc.id)
+      };
+
+      // Charger les élèves liés aux utilisateurs chargés
+      // Attention: Firestore whereIn max 10 items => batcher par 10
+      List<EleveModele> loadedEleves = [];
+      final userIds = utilisateursMap.keys.toList();
+
+      for (int i = 0; i < userIds.length; i += 10) {
+        final batchIds = userIds.sublist(
+          i,
+          i + 10 > userIds.length ? userIds.length : i + 10,
+        );
+
+        Query query = FirebaseFirestore.instance.collection('eleves')
+            .where('utilisateurId', whereIn: batchIds);
+
+        if (selectedClasseId != null && selectedClasseId!.isNotEmpty) {
+          query = query.where('classeId', isEqualTo: selectedClasseId);
+        }
+
+        final elevesSnap = await query.get();
+
+        loadedEleves.addAll(
+          elevesSnap.docs
+              .map((doc) => EleveModele.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+              .toList(),
+        );
+      }
+
+      eleves = loadedEleves;
+
       setState(() {
-        classes = loadedClasses;
-        isLoadingClasses = false;
+        isLoading = false;
       });
     } catch (e) {
-      debugPrint("Erreur chargement classes: $e");
       setState(() {
-        isLoadingClasses = false;
+        error = e.toString();
+        isLoading = false;
       });
     }
   }
 
-  bool isValidId(String? id) {
-    return id != null && id.isNotEmpty;
+  List<EleveModele> _filtrerEleves() {
+    final query = searchQuery.toLowerCase();
+
+    return eleves.where((eleve) {
+      final utilisateur = utilisateursMap[eleve.utilisateurId];
+      if (utilisateur == null) return false;
+
+      // Filtre recherche
+      if (query.isNotEmpty) {
+        final fullName = '${utilisateur.nom} ${utilisateur.prenom}'.toLowerCase();
+        if (!fullName.contains(query)) return false;
+      }
+
+      // Filtre classe
+      if (selectedClasseId != null && selectedClasseId!.isNotEmpty) {
+        if (eleve.classeId != selectedClasseId) return false;
+      }
+
+      return true;
+    }).toList();
   }
 
   Future<void> _supprimerUtilisateur(BuildContext context, String utilisateurId, String eleveId) async {
@@ -75,68 +143,13 @@ class _ListeElevesState extends State<ListeEleves> {
       try {
         await FirebaseFirestore.instance.collection('eleves').doc(eleveId).delete();
         await FirebaseFirestore.instance.collection('utilisateurs').doc(utilisateurId).delete();
-
+        await _chargerDonnees();
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Élève supprimé avec succès')));
       } catch (e) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur lors de la suppression : $e')));
       }
-    }
-  }
-
-  /// Étape 1: récupérer les IDs des utilisateurs de l'établissement
-  Future<List<String>> _getUtilisateurIdsPourEtablissement() async {
-    final snapshot = await FirebaseFirestore.instance
-        .collection('utilisateurs')
-        .where('etablissementId', isEqualTo: widget.etablissementId)
-        .get();
-
-    return snapshot.docs.map((doc) => doc.id).toList();
-  }
-
-  /// Étape 2: récupérer les élèves liés à ces utilisateurs, avec filtre classe si nécessaire
-  Future<List<EleveModele>> _chargerElevesFiltres() async {
-    final utilisateurIds = await _getUtilisateurIdsPourEtablissement();
-
-    if (utilisateurIds.isEmpty) return [];
-
-    List<EleveModele> eleves = [];
-
-    for (int i = 0; i < utilisateurIds.length; i += 10) {
-      final batchIds = utilisateurIds.sublist(
-        i,
-        i + 10 > utilisateurIds.length ? utilisateurIds.length : i + 10,
-      );
-
-      Query query = FirebaseFirestore.instance.collection('eleves')
-          .where('utilisateurId', whereIn: batchIds);
-
-      // Appliquer filtre classe si sélectionné
-      if (selectedClasseId != null && selectedClasseId!.isNotEmpty) {
-        query = query.where('classeId', isEqualTo: selectedClasseId);
-      }
-
-      final snapshot = await query.get();
-      eleves.addAll(snapshot.docs.map((doc) => EleveModele.fromMap(doc.data() as Map<String, dynamic>, doc.id)));
-    }
-
-    return eleves;
-  }
-
-  /// Filtre recherche sur le nom/prénom utilisateur lié
-  Future<bool> _filtrerEleveParRecherche(EleveModele eleve) async {
-    if (searchQuery.isEmpty) return true;
-
-    try {
-      final utilisateurDoc = await FirebaseFirestore.instance.collection('utilisateurs').doc(eleve.utilisateurId).get();
-      if (!utilisateurDoc.exists) return false;
-      final utilisateur = UtilisateurModele.fromMap(utilisateurDoc.data()! as Map<String, dynamic>, utilisateurDoc.id);
-
-      final fullName = '${utilisateur.nom} ${utilisateur.prenom}'.toLowerCase();
-      return fullName.contains(searchQuery);
-    } catch (e) {
-      return false;
     }
   }
 
@@ -151,6 +164,8 @@ class _ListeElevesState extends State<ListeEleves> {
     final isLargeScreen = screenWidth >= 900;
     final isTablet = screenWidth >= 600 && screenWidth < 900;
 
+    final filteredEleves = _filtrerEleves();
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -163,96 +178,46 @@ class _ListeElevesState extends State<ListeEleves> {
               _buildFilterBar(),
               const SizedBox(height: 12),
               Expanded(
-                child: FutureBuilder<List<EleveModele>>(
-                  future: _chargerElevesFiltres(),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    if (snapshot.hasError) {
-                      return Center(child: Text("Erreur : ${snapshot.error}"));
-                    }
-
-                    final eleves = snapshot.data ?? [];
-
-                    if (eleves.isEmpty) {
-                      return const Center(child: Text("Aucun élève trouvé."));
-                    }
-
-                    return FutureBuilder<List<EleveModele>>(
-                      future: Future.wait(eleves.map((eleve) async {
-                        if (await _filtrerEleveParRecherche(eleve)) return eleve;
-                        return null;
-                      }).toList()).then((results) => results.whereType<EleveModele>().toList()),
-                      builder: (context, filteredSnapshot) {
-                        if (!filteredSnapshot.hasData) {
-                          return const Center(child: CircularProgressIndicator());
-                        }
-
-                        final filteredEleves = filteredSnapshot.data!;
-
-                        if (filteredEleves.isEmpty) {
-                          return const Center(child: Text("Aucun élève ne correspond à la recherche."));
-                        }
-
-                        return ListView.builder(
-                          padding: const EdgeInsets.only(bottom: 80),
-                          itemCount: filteredEleves.length,
-                          itemBuilder: (context, index) {
-                            final eleve = filteredEleves[index];
-
-                            if (!isValidId(eleve.utilisateurId)) {
-                              return const ListTile(title: Text('ID utilisateur invalide'));
-                            }
-
-                            return FutureBuilder<DocumentSnapshot>(
-                              future: FirebaseFirestore.instance.collection('utilisateurs').doc(eleve.utilisateurId).get(),
-                              builder: (context, utilisateurSnapshot) {
-                                if (utilisateurSnapshot.connectionState == ConnectionState.waiting) {
-                                  return const ListTile(title: Text('Chargement...'));
-                                }
-                                if (!utilisateurSnapshot.hasData || !utilisateurSnapshot.data!.exists) {
-                                  return const ListTile(title: Text('Utilisateur non trouvé'));
-                                }
-
-                                final utilisateur = UtilisateurModele.fromMap(
-                                  utilisateurSnapshot.data!.data()! as Map<String, dynamic>,
-                                  utilisateurSnapshot.data!.id,
-                                );
-
-                                return FutureBuilder<DocumentSnapshot>(
-                                  future: FirebaseFirestore.instance.collection('classes').doc(eleve.classeId).get(),
-                                  builder: (context, classeSnapshot) {
-                                    String classeNom = 'Classe inconnue';
-                                    if (classeSnapshot.hasData && classeSnapshot.data!.exists) {
-                                      final dataClasse = classeSnapshot.data!.data() as Map<String, dynamic>;
-                                      classeNom = dataClasse['nom'] ?? 'Classe inconnue';
-                                    }
-
-                                    return _buildUtilisateurCard(context, eleve, utilisateur, classeNom, isLargeScreen, isTablet);
-                                  },
-                                );
-                              },
-                            );
-                          },
-                        );
-                      },
-                    );
-                  },
-                ),
+                child: isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : error != null
+                        ? Center(child: Text("Erreur : $error"))
+                        : filteredEleves.isEmpty
+                            ? const Center(child: Text("Aucun élève trouvé."))
+                            : ListView.builder(
+                                padding: const EdgeInsets.only(bottom: 80),
+                                itemCount: filteredEleves.length,
+                                itemBuilder: (context, index) {
+                                  final eleve = filteredEleves[index];
+                                  final utilisateur = utilisateursMap[eleve.utilisateurId];
+                                  final classe = classesMap[eleve.classeId];
+                                  if (utilisateur == null) {
+                                    return const ListTile(title: Text('Utilisateur non trouvé'));
+                                  }
+                                  return _buildUtilisateurCard(
+                                    context,
+                                    eleve,
+                                    utilisateur,
+                                    classe?.nom ?? 'Classe inconnue',
+                                    isLargeScreen,
+                                    isTablet,
+                                  );
+                                },
+                              ),
               ),
             ],
           ),
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          Navigator.push(
+        onPressed: () async {
+          await Navigator.push(
             context,
             MaterialPageRoute(
               builder: (context) => AjoutEleveVue(etablissementId: widget.etablissementId),
             ),
           );
+          await _chargerDonnees();
         },
         child: const Icon(Icons.add),
       ),
@@ -281,12 +246,13 @@ class _ListeElevesState extends State<ListeEleves> {
   }
 
   Widget _buildFilterBar() {
-    return isLoadingClasses
+    return isLoading
         ? const Center(child: CircularProgressIndicator())
         : Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text("Nombre d'élèves chargés", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              Text("Nombre d'élèves chargés : ${eleves.length}",
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
               DropdownButton<String?>(
                 value: selectedClasseId,
                 hint: const Text("Filtrer par classe"),
@@ -295,12 +261,17 @@ class _ListeElevesState extends State<ListeEleves> {
                   const DropdownMenuItem(value: null, child: Text("Toutes les classes")),
                   ...classes.map(
                     (classe) => DropdownMenuItem(
-                      value: classe['id'],
-                      child: Text(classe['nom']!, style: const TextStyle(fontSize: 14)),
+                      value: classe.id,
+                      child: Text(classe.nom, style: const TextStyle(fontSize: 14)),
                     ),
                   ),
                 ],
-                onChanged: (value) => setState(() => selectedClasseId = value),
+                onChanged: (value) async {
+                  setState(() {
+                    selectedClasseId = value;
+                  });
+                  await _chargerDonnees();
+                },
                 style: const TextStyle(fontSize: 14, color: Colors.black87),
               ),
             ],
@@ -369,10 +340,13 @@ class _ListeElevesState extends State<ListeEleves> {
                     IconButton(
                       icon: Icon(Icons.edit, color: primaryColor, size: infoFontSize + 6),
                       tooltip: "Modifier",
-                      onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => ModificationEleveVue(eleveId: eleve.id)),
-                      ),
+                      onPressed: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => ModificationEleveVue(eleveId: eleve.id)),
+                        );
+                        await _chargerDonnees();
+                      },
                     ),
                     IconButton(
                       icon: Icon(Icons.delete, color: deleteColor, size: infoFontSize + 6),
@@ -391,12 +365,18 @@ class _ListeElevesState extends State<ListeEleves> {
                 Icon(Icons.phone, color: subTextColor, size: infoFontSize),
                 const SizedBox(width: 6),
                 Expanded(
-                  child: Text(utilisateur.numeroTelephone.isNotEmpty ? utilisateur.numeroTelephone : '-', style: TextStyle(fontSize: infoFontSize, color: textColor)),
+                  child: Text(
+                    utilisateur.numeroTelephone.isNotEmpty ? utilisateur.numeroTelephone : '-',
+                    style: TextStyle(fontSize: infoFontSize, color: textColor),
+                  ),
                 ),
                 Icon(Icons.home, color: subTextColor, size: infoFontSize),
                 const SizedBox(width: 6),
                 Expanded(
-                  child: Text(utilisateur.adresse.isNotEmpty ? utilisateur.adresse : '-', style: TextStyle(fontSize: infoFontSize, color: textColor)),
+                  child: Text(
+                    utilisateur.adresse.isNotEmpty ? utilisateur.adresse : '-',
+                    style: TextStyle(fontSize: infoFontSize, color: textColor),
+                  ),
                 ),
                 const SizedBox(width: 6),
                 Expanded(
@@ -536,12 +516,7 @@ class EleveDetailCard extends StatelessWidget {
                   _infoRow(Icons.home, 'Adresse', utilisateur.adresse.isNotEmpty ? utilisateur.adresse : '-'),
                   _infoRow(Icons.class_, 'Classe', classeNom),
                 ]),
-                // _buildSection('INFORMATIONS ÉLÈVE', [
-                //   _infoRow(Icons.cake, 'Date de naissance', eleve.dateNaissance),
-                //   _infoRow(Icons.wc, 'Sexe', eleve.sexe),
-                //   _infoRow(Icons.school, 'Niveau', eleve.niveauScolaire),
-                //   // Ajoute d'autres champs de EleveModele si besoin
-                // ]),
+                // Ajoute ici d'autres sections si besoin
               ],
             ),
           ),

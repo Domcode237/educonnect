@@ -18,8 +18,66 @@ class ListeParents extends StatefulWidget {
 
 class _ListeParentsState extends State<ListeParents> {
   String searchQuery = '';
+  List<ParentModele> parents = [];
+  Map<String, UtilisateurModele> utilisateursMap = {};
+  bool isLoading = true;
+  String? error;
 
-  bool isValidId(String? id) => id != null && id.isNotEmpty;
+  @override
+  void initState() {
+    super.initState();
+    _chargerDonnees();
+  }
+
+  Future<void> _chargerDonnees() async {
+    try {
+      setState(() {
+        isLoading = true;
+        error = null;
+      });
+
+      // 1. Charger tous les utilisateurs de l'établissement
+      final usersSnapshot = await FirebaseFirestore.instance
+          .collection('utilisateurs')
+          .where('etablissementId', isEqualTo: widget.etablissementId)
+          .get();
+
+      utilisateursMap = {
+        for (var doc in usersSnapshot.docs)
+          doc.id: UtilisateurModele.fromMap(doc.data() as Map<String, dynamic>, doc.id)
+      };
+
+      // 2. Charger tous les parents dont utilisateurId est dans la Map des utilisateurs chargés
+      final parentsSnapshot = await FirebaseFirestore.instance.collection('parents').get();
+
+      parents = parentsSnapshot.docs
+          .map((doc) => ParentModele.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+          .where((parent) => utilisateursMap.containsKey(parent.utilisateurId))
+          .toList();
+
+      setState(() {
+        isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        error = e.toString();
+        isLoading = false;
+      });
+    }
+  }
+
+  List<ParentModele> _filtrerParents() {
+    if (searchQuery.isEmpty) {
+      return parents;
+    }
+    final query = searchQuery.toLowerCase();
+    return parents.where((parent) {
+      final utilisateur = utilisateursMap[parent.utilisateurId];
+      if (utilisateur == null) return false;
+      final fullName = '${utilisateur.nom} ${utilisateur.prenom}'.toLowerCase();
+      return fullName.contains(query);
+    }).toList();
+  }
 
   Future<void> _supprimerParent(BuildContext context, String utilisateurId, String parentId) async {
     final confirmation = await showDialog<bool>(
@@ -38,52 +96,13 @@ class _ListeParentsState extends State<ListeParents> {
       try {
         await FirebaseFirestore.instance.collection('parents').doc(parentId).delete();
         await FirebaseFirestore.instance.collection('utilisateurs').doc(utilisateurId).delete();
+        await _chargerDonnees(); // Recharger après suppression
         if (!mounted) return;
-        setState(() {});
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Parent supprimé avec succès')));
       } catch (e) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur lors de la suppression : $e')));
       }
-    }
-  }
-
-  Future<List<ParentModele>> _chargerParentsFiltres() async {
-    final snapshot = await FirebaseFirestore.instance.collection('parents').get();
-
-    List<ParentModele> filteredParents = [];
-
-    for (var doc in snapshot.docs) {
-      final parent = ParentModele.fromMap(doc.data() as Map<String, dynamic>, doc.id);
-
-      final utilisateurDoc = await FirebaseFirestore.instance
-          .collection('utilisateurs')
-          .doc(parent.utilisateurId)
-          .get();
-
-      if (utilisateurDoc.exists) {
-        final utilisateurData = utilisateurDoc.data() as Map<String, dynamic>;
-        final utilisateur = UtilisateurModele.fromMap(utilisateurData, utilisateurDoc.id);
-
-        if (utilisateur.etablissementId == widget.etablissementId) {
-          filteredParents.add(parent);
-        }
-      }
-    }
-
-    return filteredParents;
-  }
-
-  Future<bool> _filtrerParentParRecherche(ParentModele parent) async {
-    if (searchQuery.isEmpty) return true;
-    try {
-      final utilisateurDoc = await FirebaseFirestore.instance.collection('utilisateurs').doc(parent.utilisateurId).get();
-      if (!utilisateurDoc.exists) return false;
-      final utilisateur = UtilisateurModele.fromMap(utilisateurDoc.data()! as Map<String, dynamic>, utilisateurDoc.id);
-      final fullName = '${utilisateur.nom} ${utilisateur.prenom}'.toLowerCase();
-      return fullName.contains(searchQuery);
-    } catch (_) {
-      return false;
     }
   }
 
@@ -199,7 +218,7 @@ class _ListeParentsState extends State<ListeParents> {
                     onPressed: () => Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => ModifierParent(parentId: parent.id)),
-                    ).then((_) => setState(() {})),
+                    ).then((_) => _chargerDonnees()),
                   ),
                   IconButton(
                     icon: const Icon(Icons.delete, color: Colors.redAccent),
@@ -216,6 +235,8 @@ class _ListeParentsState extends State<ListeParents> {
 
   @override
   Widget build(BuildContext context) {
+    final filteredParents = _filtrerParents();
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -226,62 +247,24 @@ class _ListeParentsState extends State<ListeParents> {
               _buildSearchBar(),
               const SizedBox(height: 12),
               Expanded(
-                child: FutureBuilder<List<ParentModele>>(
-                  future: _chargerParentsFiltres(),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    if (snapshot.hasError) {
-                      return Center(child: Text("Erreur : ${snapshot.error}"));
-                    }
-                    final parents = snapshot.data ?? [];
-                    if (parents.isEmpty) {
-                      return const Center(child: Text("Aucun parent trouvé."));
-                    }
-                    return FutureBuilder<List<ParentModele>>(
-                      future: Future.wait(parents.map((parent) async {
-                        if (await _filtrerParentParRecherche(parent)) return parent;
-                        return null;
-                      }).toList()).then((results) => results.whereType<ParentModele>().toList()),
-                      builder: (context, filteredSnapshot) {
-                        if (!filteredSnapshot.hasData) {
-                          return const Center(child: CircularProgressIndicator());
-                        }
-                        final filteredParents = filteredSnapshot.data!;
-                        if (filteredParents.isEmpty) {
-                          return const Center(child: Text("Aucun parent ne correspond à la recherche."));
-                        }
-                        return ListView.builder(
-                          padding: const EdgeInsets.only(bottom: 80),
-                          itemCount: filteredParents.length,
-                          itemBuilder: (context, index) {
-                            final parent = filteredParents[index];
-                            if (!isValidId(parent.utilisateurId)) {
-                              return const ListTile(title: Text('ID utilisateur invalide'));
-                            }
-                            return FutureBuilder<DocumentSnapshot>(
-                              future: FirebaseFirestore.instance.collection('utilisateurs').doc(parent.utilisateurId).get(),
-                              builder: (context, utilisateurSnapshot) {
-                                if (utilisateurSnapshot.connectionState == ConnectionState.waiting) {
-                                  return const ListTile(title: Text('Chargement...'));
-                                }
-                                if (!utilisateurSnapshot.hasData || !utilisateurSnapshot.data!.exists) {
-                                  return const ListTile(title: Text('Utilisateur non trouvé'));
-                                }
-                                final utilisateur = UtilisateurModele.fromMap(
-                                  utilisateurSnapshot.data!.data()! as Map<String, dynamic>,
-                                  utilisateurSnapshot.data!.id,
-                                );
-                                return _buildUtilisateurCard(context, parent, utilisateur);
-                              },
-                            );
-                          },
-                        );
-                      },
-                    );
-                  },
-                ),
+                child: isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : error != null
+                        ? Center(child: Text("Erreur : $error"))
+                        : filteredParents.isEmpty
+                            ? const Center(child: Text("Aucun parent trouvé."))
+                            : ListView.builder(
+                                padding: const EdgeInsets.only(bottom: 80),
+                                itemCount: filteredParents.length,
+                                itemBuilder: (context, index) {
+                                  final parent = filteredParents[index];
+                                  final utilisateur = utilisateursMap[parent.utilisateurId];
+                                  if (utilisateur == null) {
+                                    return const ListTile(title: Text('Utilisateur non trouvé'));
+                                  }
+                                  return _buildUtilisateurCard(context, parent, utilisateur);
+                                },
+                              ),
               ),
             ],
           ),
@@ -293,7 +276,7 @@ class _ListeParentsState extends State<ListeParents> {
           MaterialPageRoute(
             builder: (context) => AjoutParentVue(etablissementId: widget.etablissementId),
           ),
-        ).then((_) => setState(() {})),
+        ).then((_) => _chargerDonnees()),
         child: const Icon(Icons.add),
       ),
     );

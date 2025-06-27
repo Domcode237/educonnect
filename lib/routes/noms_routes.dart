@@ -22,6 +22,7 @@ class NomsRoutes {
   static const String ajoutereleve = '/ajouteleve';
   static const String ajouterparent = '/ajoutparent';
   static const String pageadmin = '/pagePrincipaleAdmin';
+  static const String ajoutenseignant = '/ajoutenseignant';
   
 
 

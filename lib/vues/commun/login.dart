@@ -64,96 +64,87 @@ class _LoginPageState extends State<LoginPage> {
     if (success) {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        // ✅ Mise à jour du statut à true
+        // Mise à jour du statut à true
         await FirebaseFirestore.instance
             .collection('utilisateurs')
             .doc(user.uid)
             .update({'statut': true});
       }
 
-      // 🎯 Redirection par rôle
       final role = controleur.role;
-      if (role != null) {
-        final roleNom = role.nom.toLowerCase();
+      if (role == null) {
+        _showSnackBar("Rôle inconnu. Veuillez contacter l'administrateur.", isError: true);
+        setState(() => isLoading = false);
+        return;
+      }
 
-        if (roleNom == 'superadmin') {
-          Navigator.pushReplacementNamed(context, "/home_super_admin");
-        } else {
-          final userDoc = await FirebaseFirestore.instance
-              .collection('utilisateurs')
-              .doc(FirebaseAuth.instance.currentUser?.uid)
-              .get();
+      final roleNom = role.nom.toLowerCase();
 
-          if (userDoc.exists) {
-            final etablissementId = userDoc.data()?['etablissementId'] as String?;
-            if (etablissementId == null || etablissementId.isEmpty) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                    content: Text(
-                        "Aucun établissement associé à cet utilisateur.")),
-              );
-              return;
-            }
+      if (roleNom == 'superadmin') {
+        Navigator.pushReplacementNamed(context, "/home_super_admin");
+        setState(() => isLoading = false);
+        return;
+      }
 
-            if (roleNom == 'administrateur') {
-              Navigator.pushReplacementNamed(
-                context,
-                "/home_admin",
-                arguments: {'etablissementId': etablissementId},
-              );
-            } else if (roleNom == 'enseignant') {
-              Navigator.pushReplacementNamed(
-                context,
-                "/home_enseignant",
-                arguments: {'etablissementId': etablissementId},
-              );
-            } else if (roleNom == 'parent') {
-              Navigator.pushReplacementNamed(
-                context,
-                "/home_Parent",
-                arguments: {'etablissementId': etablissementId},
-              );
-            } else if (roleNom == 'eleve') {
-              Navigator.pushReplacementNamed(
-                context,
-                "/home_eleve",
-                arguments: {'etablissementId': etablissementId},
-              );
-            } else {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(
-                      "Rôle inconnu. Veuillez contacter l'administrateur."),
-                  backgroundColor: Colors.redAccent,
-                ),
-              );
-              Navigator.pushReplacementNamed(context, "/login");
-            }
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text("Utilisateur non trouvé dans la base."),
-              ),
-            );
-          }
-        }
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content:
-                Text("Rôle inconnu. Veuillez contacter l'administrateur."),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-        Navigator.pushReplacementNamed(context, "/login");
+      // Optimisation: récupère une fois le document utilisateur
+      final userDocSnapshot = await FirebaseFirestore.instance
+          .collection('utilisateurs')
+          .doc(user?.uid)
+          .get();
+
+      if (!userDocSnapshot.exists) {
+        _showSnackBar("Utilisateur non trouvé dans la base.", isError: true);
+        setState(() => isLoading = false);
+        return;
+      }
+
+      final data = userDocSnapshot.data();
+      final etablissementId = data?['etablissementId'] as String?;
+
+      if (etablissementId == null || etablissementId.isEmpty) {
+        _showSnackBar("Aucun établissement associé à cet utilisateur.", isError: true);
+        setState(() => isLoading = false);
+        return;
+      }
+
+      final utilisateurId = user?.uid;
+
+      final arguments = {
+        'etablissementId': etablissementId,
+        'utilisateurId': utilisateurId,
+      };
+
+      switch (roleNom) {
+        case 'administrateur':
+          Navigator.pushReplacementNamed(context, "/home_admin", arguments: arguments);
+          break;
+        case 'enseignant':
+          Navigator.pushReplacementNamed(context, "/home_enseignant", arguments: arguments);
+          break;
+        case 'parent':
+          Navigator.pushReplacementNamed(context, "/home_Parent", arguments: arguments);
+          break;
+        case 'eleve':
+          Navigator.pushReplacementNamed(context, "/home_eleve", arguments: arguments);
+          break;
+        default:
+          _showSnackBar("Rôle inconnu. Veuillez contacter l'administrateur.", isError: true);
+          Navigator.pushReplacementNamed(context, "/login");
       }
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Échec de la connexion")),
-      );
+      _showSnackBar("Échec de la connexion");
     }
 
     setState(() => isLoading = false);
+  }
+
+  void _showSnackBar(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.redAccent : null,
+      ),
+    );
   }
 
   @override
@@ -179,6 +170,7 @@ class _LoginPageState extends State<LoginPage> {
                   children: [
                     TextField(
                       controller: emailController,
+                      keyboardType: TextInputType.emailAddress,
                       decoration: InputDecoration(
                         labelText: 'Email',
                         prefixIcon: const Icon(Icons.email),
@@ -250,8 +242,13 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                     child: isLoading
-                        ? const CircularProgressIndicator(
-                            color: Colors.white,
+                        ? const SizedBox(
+                            height: 24,
+                            width: 24,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
                           )
                         : const Text(
                             'Se connecter',

@@ -19,6 +19,7 @@ import 'package:educonnect/modules/admin/vues/home_admin.dart';
 import 'package:educonnect/modules/admin/vues/ajout_eleve.dart';
 import 'package:educonnect/modules/admin/vues/ajouter_eleve.dart';
 import 'package:educonnect/modules/admin/vues/ajouter_parent.dart';
+import 'package:educonnect/modules/admin/vues/ajouter_enseignant.dart';
 
 
 
@@ -44,13 +45,36 @@ final Map<String, WidgetBuilder> routes = {
 
 
   NomsRoutes.homeEnseignant: (context) => HomeEnseignant(),
-  NomsRoutes.homeParent: (context) => HomeParent(),
+  NomsRoutes.homeParent: (context) {
+    final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+    final etablissementId = args['etablissementId'] as String;
+    final utilisateurId = args['utilisateurId'] as String; // Ajouté ici
+    return HomeParent(
+      etablissementId: etablissementId,
+      utilisateurId: utilisateurId,
+    );
+  },
+
   NomsRoutes.homeEleve: (context) => HomeEleve(),
   NomsRoutes.homeSuperAdmin: (context) => HomeSuperAdmin(),
   NomsRoutes.rolesPage: (context) => RolesPage(),
   NomsRoutes.ajoutRole : (context) => AjoutRoleVue(),
   NomsRoutes.ajoutetablissement : (context) => AjoutEtablissementVue(),
   NomsRoutes.ajoutadministrateur : (context) => const AjoutAdministrateurVue(),
+  NomsRoutes.ajoutenseignant: (context) {
+    final route = ModalRoute.of(context);
+    if (route == null || route.settings.arguments == null) {
+      // Gérer le cas où il n'y a pas d'arguments, par ex. retourner une page d'erreur ou une page par défaut
+      return Scaffold(
+        body: Center(child: Text("Aucun identifiant d'établissement fourni")),
+      );
+    }
+    final args = route.settings.arguments as Map<String, dynamic>;
+    final etablissementId = args['etablissementId'] as String;
+    return AjoutEnseignantVue(etablissementId: etablissementId);
+  },
+
+
   NomsRoutes.ajoutereleve: (context) {
     final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>?;
     final etablissementId = args != null ? args['etablissementId'] as String : null;
