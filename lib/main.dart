@@ -4,6 +4,7 @@ import 'firebase_options.dart';
 import 'package:provider/provider.dart';
 import 'package:educonnect/controleurs/controleur_auth.dart';
 import 'application.dart';
+import 'package:intl/date_symbol_data_local.dart'; // ✅ Pour intl/fr_FR
 
 // ➕ Import Appwrite
 import 'package:appwrite/appwrite.dart';
@@ -20,19 +21,21 @@ final Client appwriteClient = Client()
 
 // ➕ Services Appwrite
 final Storage appwriteStorage = Storage(appwriteClient);
-final Account appwriteAccount = Account(appwriteClient);    // Pour gérer l'authentification Appwrite
-final Databases appwriteDatabases = Databases(appwriteClient); // Pour gérer les bases de données Appwrite
-// Tu pourras ajouter d’autres services ici si besoin (Functions, Realtime, etc.)
+final Account appwriteAccount = Account(appwriteClient);
+final Databases appwriteDatabases = Databases(appwriteClient);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ➕ Initialisation Firebase
+  // ✅ Initialisation Firebase
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  // Lance ton app
+  // ✅ Initialisation des formats de date pour le français
+  await initializeDateFormatting('fr_FR', null);
+
+  // ✅ Lancement de l’application avec Provider
   runApp(
     ChangeNotifierProvider(
       create: (_) => ControleurAuth(),

@@ -323,15 +323,57 @@ class _PageMessageDetailParentState extends State<PageMessageDetailParent> {
                     if (messages.isEmpty) {
                       return const Center(child: Text("Aucun message"));
                     }
+
                     return ListView.builder(
                       controller: _scrollController,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       itemCount: messages.length,
                       itemBuilder: (context, i) {
                         final msg = messages[i];
                         final isMe = msg.emetteurId == widget.parentId;
-                        return _buildMessageBubble(msg, isMe);
+
+                        bool showDateLabel = false;
+                        if (i == 0) {
+                          showDateLabel = true;
+                        } else {
+                          final currentDate = DateTime(
+                              msg.dateEnvoi.year, msg.dateEnvoi.month, msg.dateEnvoi.day);
+                          final previousDate = DateTime(
+                              messages[i - 1].dateEnvoi.year,
+                              messages[i - 1].dateEnvoi.month,
+                              messages[i - 1].dateEnvoi.day);
+                          if (currentDate != previousDate) {
+                            showDateLabel = true;
+                          }
+                        }
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (showDateLabel)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                child: Center(
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey.shade300,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      _formatDayLabel(msg.dateEnvoi),
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.black54,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            _buildMessageBubble(msg, isMe),
+                          ],
+                        );
                       },
                     );
                   },
@@ -395,7 +437,7 @@ class _PageMessageDetailParentState extends State<PageMessageDetailParent> {
                   textEditingController: _controller,
                   onEmojiSelected: (category, emoji) {
                     _controller
-                        .text += emoji.emoji; // Ajoute l'emoji sélectionné au message
+                        .text += emoji.emoji;
                   },
                   onBackspacePressed: () {
                     if (_controller.text.isNotEmpty) {
@@ -406,7 +448,7 @@ class _PageMessageDetailParentState extends State<PageMessageDetailParent> {
                   config: Config(
                     emojiViewConfig: const EmojiViewConfig(
                       emojiSizeMax: 28,
-                      columns: 7, // ✅ colonne placée dans EmojiViewConfig
+                      columns: 7,
                     ),
                     skinToneConfig: const SkinToneConfig(),
                     categoryViewConfig: const CategoryViewConfig(),

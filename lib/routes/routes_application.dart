@@ -44,7 +44,16 @@ final Map<String, WidgetBuilder> routes = {
 
 
 
-  NomsRoutes.homeEnseignant: (context) => HomeEnseignant(),
+  NomsRoutes.homeEnseignant: (context) {
+    final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+    final etablissementId = args['etablissementId'] as String;
+    final utilisateurId = args['utilisateurId'] as String; // Ajouté ici
+    return HomeEnseignant(
+      etablissementId: etablissementId,
+      utilisateurId: utilisateurId,
+    );
+  },
+  
   NomsRoutes.homeParent: (context) {
     final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
     final etablissementId = args['etablissementId'] as String;
@@ -55,7 +64,15 @@ final Map<String, WidgetBuilder> routes = {
     );
   },
 
-  NomsRoutes.homeEleve: (context) => HomeEleve(),
+  NomsRoutes.homeEleve: (context) {
+    final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+    final etablissementId = args['etablissementId'] as String;
+    final utilisateurId = args['utilisateurId'] as String; // Ajouté ici
+    return HomeEleve(
+      etablissementId: etablissementId,
+      utilisateurId: utilisateurId,
+    );
+  },
   NomsRoutes.homeSuperAdmin: (context) => HomeSuperAdmin(),
   NomsRoutes.rolesPage: (context) => RolesPage(),
   NomsRoutes.ajoutRole : (context) => AjoutRoleVue(),

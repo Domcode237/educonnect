@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../../enseignant/modeles/model_notification.dart';
 
+
 class NotificationsParentPage extends StatefulWidget {
   final String parentId;
 
@@ -64,45 +65,54 @@ class _NotificationsParentPageState extends State<NotificationsParentPage> {
 
   Widget _buildNotificationTile(NotificationModele notif) {
     final isLu = notif.lu;
-    final icon = isLu ? Icons.notifications_none : Icons.notifications_active;
-    final iconColor = isLu ? Colors.grey : Colors.blue;
+    final icon = isLu ? Icons.notifications : Icons.notifications_active;
+    final iconColor = isLu ? Colors.black : Colors.blue;
 
-    return Column(
-      children: [
-        ListTile(
-          onTap: () async {
-            if (!notif.lu) {
-              await _firestore.collection('notifications').doc(notif.id).update({'lu': true});
-              setState(() {});
-            }
-          },
-          leading: Icon(icon, color: iconColor, size: 30),
-          title: Text(
-            notif.titre,
-            style: TextStyle(
-              fontWeight: isLu ? FontWeight.normal : FontWeight.bold,
-              fontSize: 16,
+    return  Column(
+        children: [
+          Container(
+              decoration: BoxDecoration(
+                color: notif.lu ? Colors.transparent : const Color.fromARGB(44, 195, 221, 235), // ✅ fond différent si non lu
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: ListTile(
+                  onTap: () async {
+                    if (!notif.lu) {
+                      await _firestore.collection('notifications').doc(notif.id).update({'lu': true});
+                      setState(() {});
+                    }
+                  },
+                  leading: Icon(icon, color: iconColor, size: 30),
+                  title: Text(
+                    notif.titre,
+                    style: TextStyle(
+                      fontWeight: notif.lu ? FontWeight.normal : FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 4),
+                      Text(
+                        notif.message,
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        _formatDate(notif.createdAt),
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 0, vertical: 8),
+                ),
+              ),
             ),
-          ),
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 4),
-              Text(
-                notif.message,
-                style: const TextStyle(fontSize: 14),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                _formatDate(notif.createdAt),
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-            ],
-          ),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        ),
-        const Divider(height: 0, thickness: 1, indent: 16, endIndent: 16),
-      ],
+          const Divider(height: 0, thickness: 1, indent: 22, endIndent: 22),
+        ],
     );
   }
 
@@ -125,7 +135,7 @@ class _NotificationsParentPageState extends State<NotificationsParentPage> {
 
               return Center(
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(20),
                   child: SelectableText(
                     "🔥 Firestore nécessite un index composite pour cette requête.\n\n"
                     "Cliquez sur le lien suivant pour créer l'index :\n\n$indexLink",

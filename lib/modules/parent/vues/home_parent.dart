@@ -42,7 +42,7 @@ class _HomeParentState extends State<HomeParent> {
     Icons.dashboard,
     Icons.child_care,
     Icons.notifications,
-    Icons.sms,
+    Icons.message_rounded, // ✅ icône messenger-style
     Icons.settings,
   ];
 
@@ -101,7 +101,7 @@ class _HomeParentState extends State<HomeParent> {
 
       setState(() {});
     } catch (e) {
-      debugPrint("Erreur de chargement des donn\u00e9es parent: $e");
+      debugPrint("Erreur de chargement des données parent: $e");
     }
   }
 
@@ -134,15 +134,49 @@ class _HomeParentState extends State<HomeParent> {
   }
 
   void _onItemTapped(int index) async {
-    setState(() {
-      _selectedIndex = index;
-    });
+    setState(() => _selectedIndex = index);
 
-    if (index == 3 || index == 2) {
+    if (index == 2 || index == 3) {
       await _chargerNombreMessagesNonLus();
       await _chargerNombreNotifsNonLues();
       setState(() {});
     }
+  }
+
+  Widget _buildBadge(int count) {
+    if (count == 0) return const SizedBox.shrink();
+    return Positioned(
+      right: -9,
+      top: -9,
+      child: Container(
+        padding: const EdgeInsets.all(4),
+        decoration: const BoxDecoration(
+          color: Colors.red,
+          shape: BoxShape.circle,
+        ),
+        constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
+        child: Center(
+          child: Text(
+            '$count',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _iconWithBadge(IconData icon, int count) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Icon(icon),
+        if (count > 0) _buildBadge(count),
+      ],
+    );
   }
 
   @override
@@ -150,25 +184,20 @@ class _HomeParentState extends State<HomeParent> {
     final isWideScreen = MediaQuery.of(context).size.width >= 600;
 
     return Scaffold(
-     drawer: Drawer(
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.zero, // ✅ Zéro arrondi partout
-        ),
+      drawer: Drawer(
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
         child: ListView(
           padding: EdgeInsets.zero,
           children: [
             DrawerHeader(
-              decoration: BoxDecoration(
-                color: Colors.blue.shade700,
-                // Pas de borderRadius ici → pas d’arrondi
-              ),
+              decoration: BoxDecoration(color: Colors.blue.shade700),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center, // ✅ Centrage vertical
-                crossAxisAlignment: CrossAxisAlignment.center, // ✅ Centrage horizontal
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   CircleAvatar(
                     radius: 30,
-                    backgroundImage: _photoUrl != null ? NetworkImage(_photoUrl!) : null,
+                    backgroundImage:
+                        _photoUrl != null ? NetworkImage(_photoUrl!) : null,
                     backgroundColor: Colors.white,
                     child: _photoUrl == null
                         ? const Icon(Icons.person, size: 32, color: Colors.grey)
@@ -184,18 +213,11 @@ class _HomeParentState extends State<HomeParent> {
             ),
             for (int i = 0; i < pageTitles.length; i++)
               ListTile(
-                leading: Icon(pageIcons[i]),
+                leading: _iconWithBadge(
+                  pageIcons[i],
+                  i == 2 ? nbNotifsNonLues : i == 3 ? nbMessagesNonLus : 0,
+                ),
                 title: Text(pageTitles[i]),
-                trailing: i == 2 && nbNotifsNonLues > 0
-                    ? CircleAvatar(
-                        radius: 10,
-                        backgroundColor: Colors.red,
-                        child: Text(
-                          '$nbNotifsNonLues',
-                          style: const TextStyle(color: Colors.white, fontSize: 12),
-                        ),
-                      )
-                    : null,
                 onTap: () {
                   Navigator.pop(context);
                   _onItemTapped(i);
@@ -210,7 +232,6 @@ class _HomeParentState extends State<HomeParent> {
           ],
         ),
       ),
-
       appBar: AppBar(
         title: Text(pageTitles[_selectedIndex]),
         actions: [
@@ -219,61 +240,14 @@ class _HomeParentState extends State<HomeParent> {
                 ? CircleAvatar(
                     radius: 16,
                     backgroundImage: NetworkImage(_photoUrl!),
-                    backgroundColor: Colors.transparent,
                   )
                 : const Icon(Icons.account_circle),
             onPressed: () => _onItemTapped(4),
           ),
-          Stack(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.notifications),
-                tooltip: 'Notifications',
-                onPressed: () => _onItemTapped(2),
-              ),
-              if (nbNotifsNonLues > 0)
-                Positioned(
-                  right: 0,
-                  top: 0,
-                  child: CircleAvatar(
-                    radius: 10,
-                    backgroundColor: Colors.red,
-                    child: Text(
-                      '$nbNotifsNonLues',
-                      style: const TextStyle(color: Colors.white, fontSize: 11),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          Stack(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.sms),
-                tooltip: 'Messagerie',
-                onPressed: () => _onItemTapped(3),
-              ),
-              if (nbMessagesNonLus > 0)
-                Positioned(
-                  right: 0,
-                  top: 0,
-                  child: CircleAvatar(
-                    radius: 10,
-                    backgroundColor: Colors.red,
-                    child: Text(
-                      '$nbMessagesNonLus',
-                      style: const TextStyle(color: Colors.white, fontSize: 11),
-                    ),
-                  ),
-                ),
-            ],
-          ),
           IconButton(
             icon: const Icon(Icons.logout),
-            tooltip: 'deconnexion',
             onPressed: () => logoutUser(context),
           ),
-          
         ],
       ),
       body: isWideScreen
@@ -285,7 +259,10 @@ class _HomeParentState extends State<HomeParent> {
                   labelType: NavigationRailLabelType.all,
                   destinations: List.generate(pageTitles.length, (i) {
                     return NavigationRailDestination(
-                      icon: Icon(pageIcons[i]),
+                      icon: _iconWithBadge(
+                        pageIcons[i],
+                        i == 2 ? nbNotifsNonLues : i == 3 ? nbMessagesNonLus : 0,
+                      ),
                       label: Text(pageTitles[i]),
                     );
                   }),
@@ -301,13 +278,15 @@ class _HomeParentState extends State<HomeParent> {
               currentIndex: _selectedIndex,
               onTap: _onItemTapped,
               type: BottomNavigationBarType.fixed,
-              items: List.generate(
-                pageTitles.length,
-                (i) => BottomNavigationBarItem(
-                  icon: Icon(pageIcons[i]),
+              items: List.generate(pageTitles.length, (i) {
+                return BottomNavigationBarItem(
+                  icon: _iconWithBadge(
+                    pageIcons[i],
+                    i == 2 ? nbNotifsNonLues : i == 3 ? nbMessagesNonLus : 0,
+                  ),
                   label: pageTitles[i],
-                ),
-              ),
+                );
+              }),
             ),
     );
   }
