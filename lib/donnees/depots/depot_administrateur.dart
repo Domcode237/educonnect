@@ -30,7 +30,6 @@ class DepotAdministrateur {
       throw Exception('Le rôle "administrateur" est introuvable dans Firestore.');
     }
 
-    final roleId = roleSnapshot.docs.first.id;
 
     // Récupère les détails de l’utilisateur à mettre à jour
     final utilisateur = await _depotUtilisateur.getUtilisateurParId(admin.utilisateurId);

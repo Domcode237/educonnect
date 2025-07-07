@@ -23,6 +23,7 @@ class NomsRoutes {
   static const String ajouterparent = '/ajoutparent';
   static const String pageadmin = '/pagePrincipaleAdmin';
   static const String ajoutenseignant = '/ajoutenseignant';
+  static const String devoir = '/nouveaudevoir';
   
 
 

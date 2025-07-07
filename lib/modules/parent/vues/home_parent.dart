@@ -1,13 +1,15 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:educonnect/main.dart';
 
-import 'dashboard_parent_page.dart';
 import 'liste_enfants_page.dart';
 import 'NotificationsParentPage.dart';
 import 'messagerie_parent_page.dart';
-import 'parametres_parent_page.dart';
+import 'devoir_page.dart';
 import 'package:educonnect/vues/commun/deconnexion.dart';
+import 'annonce.dart';
+import 'profil.dart';
 
 class HomeParent extends StatefulWidget {
   final String etablissementId;
@@ -27,23 +29,31 @@ class _HomeParentState extends State<HomeParent> {
   int _selectedIndex = 0;
   String? _parentId;
   String? _photoUrl;
+
   int nbMessagesNonLus = 0;
   int nbNotifsNonLues = 0;
+  int nbDevoirsNonLus = 0;
+  int nbAnnoncesNonLues = 0;
+
+  StreamSubscription? _messagesSub;
+  StreamSubscription? _notificationsSub;
+  StreamSubscription? _devoirsSub;
+  StreamSubscription? _annoncesSub;
 
   final List<String> pageTitles = [
-    "Tableau de bord",
     "Mes enfants",
     "Notifications",
     "Messagerie",
-    "Paramètres",
+    "Devoirs",
+    "Annonces",
   ];
 
   final List<IconData> pageIcons = [
-    Icons.dashboard,
     Icons.child_care,
     Icons.notifications,
-    Icons.message_rounded, // ✅ icône messenger-style
-    Icons.settings,
+    Icons.message_rounded,
+    Icons.assignment,
+    Icons.campaign,
   ];
 
   late List<Widget> pages;
@@ -51,15 +61,14 @@ class _HomeParentState extends State<HomeParent> {
   @override
   void initState() {
     super.initState();
-    _loadParentData();
-
     pages = [
-      DashboardParentPage(etablissementId: widget.etablissementId),
-      ListeEnfantsPage(etablissementId: widget.etablissementId),
+      ListeEnfantsPage(etablissementId: widget.etablissementId,parentId: widget.utilisateurId),
       const SizedBox(),
       const SizedBox(),
-      const ParametresParentPage(),
+      ListeDevoirsParentPage(utilisateurId: widget.utilisateurId),
+      const SizedBox(),
     ];
+    _loadParentData();
   }
 
   Future<void> _loadParentData() async {
@@ -82,65 +91,108 @@ class _HomeParentState extends State<HomeParent> {
       if (userSnap.exists) {
         final data = userSnap.data();
         if (data != null && data.containsKey('photo')) {
-          final fileId = data['photo'] as String?;
+          final fileId = data['photoFileId'] as String?;
           if (fileId != null && fileId.isNotEmpty) {
             _photoUrl = _getAppwriteImageUrl(fileId);
           }
         }
       }
 
-      await _chargerNombreMessagesNonLus();
-      await _chargerNombreNotifsNonLues();
-
-      pages[2] = NotificationsParentPage(parentId: _parentId ?? '');
-      pages[3] = MessagerieParentPage(
+      pages[1] = NotificationsParentPage(parentId: _parentId ?? '');
+      pages[2] = MessagerieParentPage(
         etablissementId: widget.etablissementId,
         utilisateurId: widget.utilisateurId,
         parentId: _parentId ?? '',
       );
+      pages[4] = ListeAnnoncesParentPage(
+        utilisateurId: _parentId ?? '',
+        etablissementId: widget.etablissementId,
+      );
 
       setState(() {});
+      _listenToRealtimeData();
     } catch (e) {
-      debugPrint("Erreur de chargement des données parent: $e");
+      debugPrint("Erreur chargement parent: $e");
     }
   }
 
-  Future<void> _chargerNombreMessagesNonLus() async {
+  void _listenToRealtimeData() {
     if (_parentId == null) return;
-    final query = await FirebaseFirestore.instance
+
+    _messagesSub = FirebaseFirestore.instance
         .collection('messages')
         .where('recepteurId', isEqualTo: _parentId)
         .where('lu', isEqualTo: false)
-        .get();
+        .snapshots()
+        .listen((snapshot) {
+      setState(() {
+        nbMessagesNonLus = snapshot.docs.length;
+      });
+    });
 
-    nbMessagesNonLus = query.docs.length;
-  }
-
-  Future<void> _chargerNombreNotifsNonLues() async {
-    if (_parentId == null) return;
-    final query = await FirebaseFirestore.instance
+    _notificationsSub = FirebaseFirestore.instance
         .collection('notifications')
         .where('parentId', isEqualTo: _parentId)
         .where('lu', isEqualTo: false)
-        .get();
+        .snapshots()
+        .listen((snapshot) {
+      setState(() {
+        nbNotifsNonLues = snapshot.docs.length;
+      });
+    });
 
-    nbNotifsNonLues = query.docs.length;
+    _devoirsSub = FirebaseFirestore.instance
+        .collection('devoirs')
+        .where('parentIds', arrayContains: _parentId)
+        .snapshots()
+        .listen((snapshot) {
+      int nonLus = 0;
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final lus = List<String>.from(data['lu'] ?? []);
+        if (!lus.contains(_parentId)) nonLus++;
+      }
+      setState(() {
+        nbDevoirsNonLus = nonLus;
+      });
+    });
+
+    _annoncesSub = FirebaseFirestore.instance
+        .collection('annonces')
+        .where('utilisateursConcernees', arrayContains: widget.utilisateurId)
+        .snapshots()
+        .listen((snapshot) {
+      int nonLues = 0;
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final luePar = List<String>.from(data['luePar'] ?? []);
+        if (!luePar.contains(widget.utilisateurId)) nonLues++;
+      }
+      setState(() {
+        nbAnnoncesNonLues = nonLues;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _messagesSub?.cancel();
+    _notificationsSub?.cancel();
+    _devoirsSub?.cancel();
+    _annoncesSub?.cancel();
+    super.dispose();
+  }
+
+  void _onItemTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
   }
 
   String? _getAppwriteImageUrl(String? fileId) {
     if (fileId == null || fileId.isEmpty) return null;
     const bucketId = '6854df330032c7be516c';
     return '${appwriteClient.endPoint}/storage/buckets/$bucketId/files/$fileId/view?project=${appwriteClient.config['project']}';
-  }
-
-  void _onItemTapped(int index) async {
-    setState(() => _selectedIndex = index);
-
-    if (index == 2 || index == 3) {
-      await _chargerNombreMessagesNonLus();
-      await _chargerNombreNotifsNonLues();
-      setState(() {});
-    }
   }
 
   Widget _buildBadge(int count) {
@@ -215,7 +267,15 @@ class _HomeParentState extends State<HomeParent> {
               ListTile(
                 leading: _iconWithBadge(
                   pageIcons[i],
-                  i == 2 ? nbNotifsNonLues : i == 3 ? nbMessagesNonLus : 0,
+                  i == 1
+                      ? nbNotifsNonLues
+                      : i == 2
+                          ? nbMessagesNonLus
+                          : i == 3
+                              ? nbDevoirsNonLus
+                              : i == 4
+                                  ? nbAnnoncesNonLues
+                                  : 0,
                 ),
                 title: Text(pageTitles[i]),
                 onTap: () {
@@ -236,14 +296,26 @@ class _HomeParentState extends State<HomeParent> {
         title: Text(pageTitles[_selectedIndex]),
         actions: [
           IconButton(
-            icon: _photoUrl != null
-                ? CircleAvatar(
-                    radius: 16,
-                    backgroundImage: NetworkImage(_photoUrl!),
-                  )
-                : const Icon(Icons.account_circle),
-            onPressed: () => _onItemTapped(4),
-          ),
+                icon: _photoUrl != null
+                    ? CircleAvatar(
+                        radius: 16,
+                        backgroundImage: NetworkImage(_photoUrl!),
+                      )
+                    : const Icon(Icons.account_circle),
+                tooltip: 'Profil',
+                onPressed: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ProfilUtilisateurPage(utilisateurId: widget.utilisateurId),
+                    ),
+                  );
+
+                  // ✅ Recharger les données utilisateur (ex: photoFileId mise à jour)
+                  await _loadParentData();
+                },
+              ),
+
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () => logoutUser(context),
@@ -251,27 +323,47 @@ class _HomeParentState extends State<HomeParent> {
         ],
       ),
       body: isWideScreen
-          ? Row(
-              children: [
-                NavigationRail(
-                  selectedIndex: _selectedIndex,
-                  onDestinationSelected: _onItemTapped,
-                  labelType: NavigationRailLabelType.all,
-                  destinations: List.generate(pageTitles.length, (i) {
-                    return NavigationRailDestination(
-                      icon: _iconWithBadge(
-                        pageIcons[i],
-                        i == 2 ? nbNotifsNonLues : i == 3 ? nbMessagesNonLus : 0,
-                      ),
-                      label: Text(pageTitles[i]),
-                    );
-                  }),
+    ? Row(
+        children: [
+          SizedBox(
+            height: double.infinity,
+            child: SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 300),
+                child: IntrinsicHeight(
+                  child: NavigationRail(
+                    selectedIndex: _selectedIndex,
+                    onDestinationSelected: _onItemTapped,
+                    labelType: NavigationRailLabelType.all,
+                    destinations: List.generate(pageTitles.length, (i) {
+                      return NavigationRailDestination(
+                        icon: _iconWithBadge(
+                          pageIcons[i],
+                          i == 1
+                              ? nbNotifsNonLues
+                              : i == 2
+                                  ? nbMessagesNonLus
+                                  : i == 3
+                                      ? nbDevoirsNonLus
+                                      : i == 4
+                                          ? nbAnnoncesNonLues
+                                          : 0,
+                        ),
+                        label: Text(pageTitles[i]),
+                      );
+                    }),
+                    leading: const SizedBox(height: 25), // ✅ Espace en haut
+                    trailing: const SizedBox(height: 250), // ✅ Espace en bas
+                  ),
                 ),
-                const VerticalDivider(thickness: 1, width: 1),
-                Expanded(child: pages[_selectedIndex]),
-              ],
-            )
-          : pages[_selectedIndex],
+              ),
+            ),
+          ),
+          const VerticalDivider(thickness: 1, width: 1),
+          Expanded(child: pages[_selectedIndex]),
+        ],
+      )
+    : pages[_selectedIndex],
       bottomNavigationBar: isWideScreen
           ? null
           : BottomNavigationBar(
@@ -282,7 +374,15 @@ class _HomeParentState extends State<HomeParent> {
                 return BottomNavigationBarItem(
                   icon: _iconWithBadge(
                     pageIcons[i],
-                    i == 2 ? nbNotifsNonLues : i == 3 ? nbMessagesNonLus : 0,
+                    i == 1
+                        ? nbNotifsNonLues
+                        : i == 2
+                            ? nbMessagesNonLus
+                            : i == 3
+                                ? nbDevoirsNonLus
+                                : i == 4
+                                    ? nbAnnoncesNonLues
+                                    : 0,
                   ),
                   label: pageTitles[i],
                 );

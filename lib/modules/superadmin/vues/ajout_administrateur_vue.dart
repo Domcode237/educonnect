@@ -9,7 +9,7 @@ import 'package:appwrite/appwrite.dart';
 import 'package:educonnect/main.dart';
 import 'package:educonnect/donnees/modeles/utilisateur_modele.dart';
 import 'package:educonnect/donnees/depots/depot_utilisateur.dart';
-import 'package:educonnect/donnees/depots/DepotAdministrateur.dart';
+import 'package:educonnect/donnees/depots/depot_administrateur.dart';
 import 'package:educonnect/donnees/modeles/AdministrateurModele.dart';
 
 class AjoutAdministrateurVue extends StatefulWidget {

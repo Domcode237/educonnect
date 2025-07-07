@@ -5,6 +5,7 @@ import 'package:educonnect/donnees/modeles/ParentModele.dart';
 import 'package:educonnect/donnees/modeles/EleveModele.dart';
 import 'page_message_detail.dart';
 import 'package:educonnect/main.dart'; // appwriteClient global
+import 'dart:async'; // Ajoutez cette ligne
 
 enum TypeUtilisateur { parent, eleve }
 
@@ -26,6 +27,8 @@ class _MessagerieEnseignantPageState extends State<MessagerieEnseignantPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   String? enseignantDocId;
+  StreamSubscription<QuerySnapshot>? _messagesSubscription;
+  StreamSubscription<QuerySnapshot>? _notificationsSubscription;
 
   // Données à afficher
   List<ParentModele> parents = [];
@@ -57,6 +60,39 @@ class _MessagerieEnseignantPageState extends State<MessagerieEnseignantPage> {
   void initState() {
     super.initState();
     _initialiser();
+    _setupRealtimeUpdates();
+  }
+
+  @override
+  void dispose() {
+    _messagesSubscription?.cancel();
+    _notificationsSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _setupRealtimeUpdates() {
+    if (enseignantDocId != null) {
+      _messagesSubscription = _firestore
+          .collection('messages')
+          .where('recepteurId', isEqualTo: enseignantDocId)
+          .where('lu', isEqualTo: false)
+          .snapshots()
+          .listen((snapshot) {
+        _updateUnreadCounts();
+      });
+
+      _notificationsSubscription = _firestore
+          .collection('notifications')
+          .where('recepteurId', isEqualTo: enseignantDocId)
+          .where('lu', isEqualTo: false)
+          .where('type', isEqualTo: 'message')
+          .snapshots()
+          .listen((snapshot) {
+        setState(() {
+          _nbMessagesNonLusTotal = snapshot.size;
+        });
+      });
+    }
   }
 
   Future<void> _initialiser() async {
@@ -72,6 +108,7 @@ class _MessagerieEnseignantPageState extends State<MessagerieEnseignantPage> {
       await _chargerClassesEtablissement();
       await _chargerDonnees();
       await _chargerNbMessagesNonLusTotal();
+      _setupRealtimeUpdates();
     } catch (e) {
       setState(() {
         error = e.toString();
@@ -81,6 +118,14 @@ class _MessagerieEnseignantPageState extends State<MessagerieEnseignantPage> {
     setState(() {
       isLoading = false;
     });
+  }
+
+  Future<void> _updateUnreadCounts() async {
+    if (typeSelectionne == TypeUtilisateur.parent) {
+      await _chargerNbMessagesNonLusParExpediteur(utilisateursParents.keys.toList(), isParent: true);
+    } else {
+      await _chargerNbMessagesNonLusParExpediteur(utilisateursEleves.keys.toList(), isParent: false);
+    }
   }
 
   Future<void> _chargerEnseignantDocId() async {
@@ -123,258 +168,236 @@ class _MessagerieEnseignantPageState extends State<MessagerieEnseignantPage> {
     }
   }
 
- Future<void> _chargerParentsAvecEnfants() async {
+  Future<void> _chargerParentsAvecEnfants() async {
+    // 1. Récupérer tous les documents "parents"
+    final parentsSnapshot = await _firestore.collection('parents').get();
 
-  // 1. Récupérer tous les documents "parents"
-  final parentsSnapshot = await _firestore.collection('parents').get();
-
-  // 2. Extraire tous les utilisateurIds depuis les parents
-  final utilisateurIdsParents = parentsSnapshot.docs
-      .map((d) => d.data()['utilisateurId'] as String)
-      .toSet()
-      .toList();
-
-  if (utilisateurIdsParents.isEmpty) {
-    parents = [];
-    utilisateursParents = {};
-    nbMessagesNonLusParents = {};
-    _enfantsParParent = {};
-    return;
-  }
-
-  // 3. Récupérer uniquement les utilisateurs parents de l’établissement
-  final utilisateursSnapshot = await _firestore
-      .collection('utilisateurs')
-      .where(FieldPath.documentId, whereIn: utilisateurIdsParents)
-      .where('etablissementId', isEqualTo: widget.etablissementId)
-      .get();
-
-  // 4. Construire la map des utilisateurs parents
-  utilisateursParents = {
-    for (var doc in utilisateursSnapshot.docs)
-      doc.id: UtilisateurModele.fromMap(doc.data(), doc.id)
-  };
-
-  // 5. Récupérer les parents correspondant à ces utilisateurs
-  parents = parentsSnapshot.docs
-      .map((doc) => ParentModele.fromMap(doc.data() as Map<String, dynamic>, doc.id))
-      .where((p) => utilisateursParents.containsKey(p.utilisateurId))
-      .toList();
-
-  // 6. Extraire les IDs des documents parents
-  final parentIds = parents.map((p) => p.id).toList();
-
-  // 7. Récupérer les liens familles (parentId => eleveId)
-  final familleSnapshot = await _firestore
-      .collection('famille')
-      .where('parentId', whereIn: parentIds)
-      .get();
-
-  final eleveIds = familleSnapshot.docs
-      .map((doc) => doc.data()['eleveId'] as String)
-      .toSet()
-      .toList();
-
-  if (eleveIds.isEmpty) {
-    _enfantsParParent = {};
-    await _chargerNbMessagesNonLusParExpediteur(utilisateursParents.keys.toList(), isParent: true);
-    return;
-  }
-
-  // 8. Récupérer les documents élèves
-  final elevesSnapshot = await _firestore
-      .collection('eleves')
-      .where(FieldPath.documentId, whereIn: eleveIds)
-      .get();
-
-  final elevesMap = {
-    for (var doc in elevesSnapshot.docs)
-      doc.id: EleveModele.fromMap(doc.data(), doc.id)
-  };
-
-  // 9. Extraire les utilisateurIds des élèves
-  final utilisateurIdsEleves = elevesMap.values
-      .map((e) => e.utilisateurId)
-      .toSet()
-      .toList();
-
-  if (utilisateurIdsEleves.isEmpty) {
-    _enfantsParParent = {};
-    await _chargerNbMessagesNonLusParExpediteur(utilisateursParents.keys.toList(), isParent: true);
-    return;
-  }
-
-  // 10. Récupérer les utilisateurs élèves de l’établissement
-  final utilisateursElevesSnapshot = await _firestore
-      .collection('utilisateurs')
-      .where(FieldPath.documentId, whereIn: utilisateurIdsEleves)
-      .where('etablissementId', isEqualTo: widget.etablissementId)
-      .get();
-
-  final utilisateursElevesMap = {
-    for (var doc in utilisateursElevesSnapshot.docs)
-      doc.id: UtilisateurModele.fromMap(doc.data(), doc.id)
-  };
-
-  // 11. Construire la map _enfantsParParent
-  Map<String, List<Map<String, dynamic>>> enfantsParParent = {};
-  for (var docFamille in familleSnapshot.docs) {
-    final parentId = docFamille.data()['parentId'] as String;
-    final eleveId = docFamille.data()['eleveId'] as String;
-
-    final eleve = elevesMap[eleveId];
-    if (eleve == null) continue;
-
-    final utilisateurEleve = utilisateursElevesMap[eleve.utilisateurId];
-    if (utilisateurEleve == null) continue;
-
-    final classeNom = classesEtablissement[eleve.classeId] ?? 'Classe inconnue';
-
-    enfantsParParent.putIfAbsent(parentId, () => []);
-    enfantsParParent[parentId]!.add({
-      'nomComplet': '${utilisateurEleve.prenom} ${utilisateurEleve.nom}',
-      'classeNom': classeNom,
-    });
-  }
-
-  // 12. Mise à jour de l'état
-  setState(() {
-    _enfantsParParent = enfantsParParent;
-  });
-
-
-  // 13. Charger le nombre de messages non lus
-  await _chargerNbMessagesNonLusParExpediteur(utilisateursParents.keys.toList(), isParent: true);
-}
-
-
-
-
-
-
-  Future<void> _chargerElevesParClasse() async {
-  try {
-
-    Query query = _firestore.collection('eleves');
-
-    if (classeSelectionnee != null) {
-      query = query.where('classeId', isEqualTo: classeSelectionnee);
-    }
-
-    final elevesSnapshot = await query.get();
-
-    final tousLesEleves = elevesSnapshot.docs
-        .map((doc) => EleveModele.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+    // 2. Extraire tous les utilisateurIds depuis les parents
+    final utilisateurIdsParents = parentsSnapshot.docs
+        .map((d) => d.data()['utilisateurId'] as String)
+        .toSet()
         .toList();
 
-    final utilisateurIdsEleves = tousLesEleves.map((e) => e.utilisateurId).toSet().toList();
+    if (utilisateurIdsParents.isEmpty) {
+      parents = [];
+      utilisateursParents = {};
+      nbMessagesNonLusParents = {};
+      _enfantsParParent = {};
+      return;
+    }
+
+    // 3. Récupérer uniquement les utilisateurs parents de l'établissement
+    final utilisateursSnapshot = await _firestore
+        .collection('utilisateurs')
+        .where(FieldPath.documentId, whereIn: utilisateurIdsParents)
+        .where('etablissementId', isEqualTo: widget.etablissementId)
+        .get();
+
+    // 4. Construire la map des utilisateurs parents
+    utilisateursParents = {
+      for (var doc in utilisateursSnapshot.docs)
+        doc.id: UtilisateurModele.fromMap(doc.data(), doc.id)
+    };
+
+    // 5. Récupérer les parents correspondant à ces utilisateurs
+    parents = parentsSnapshot.docs
+        .map((doc) => ParentModele.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+        .where((p) => utilisateursParents.containsKey(p.utilisateurId))
+        .toList();
+
+    // 6. Extraire les IDs des documents parents
+    final parentIds = parents.map((p) => p.id).toList();
+
+    // 7. Récupérer les liens familles (parentId => eleveId)
+    final familleSnapshot = await _firestore
+        .collection('famille')
+        .where('parentId', whereIn: parentIds)
+        .get();
+
+    final eleveIds = familleSnapshot.docs
+        .map((doc) => doc.data()['eleveId'] as String)
+        .toSet()
+        .toList();
+
+    if (eleveIds.isEmpty) {
+      _enfantsParParent = {};
+      await _chargerNbMessagesNonLusParExpediteur(utilisateursParents.keys.toList(), isParent: true);
+      return;
+    }
+
+    // 8. Récupérer les documents élèves
+    final elevesSnapshot = await _firestore
+        .collection('eleves')
+        .where(FieldPath.documentId, whereIn: eleveIds)
+        .get();
+
+    final elevesMap = {
+      for (var doc in elevesSnapshot.docs)
+        doc.id: EleveModele.fromMap(doc.data(), doc.id)
+    };
+
+    // 9. Extraire les utilisateurIds des élèves
+    final utilisateurIdsEleves = elevesMap.values
+        .map((e) => e.utilisateurId)
+        .toSet()
+        .toList();
 
     if (utilisateurIdsEleves.isEmpty) {
+      _enfantsParParent = {};
+      await _chargerNbMessagesNonLusParExpediteur(utilisateursParents.keys.toList(), isParent: true);
+      return;
+    }
+
+    // 10. Récupérer les utilisateurs élèves de l'établissement
+    final utilisateursElevesSnapshot = await _firestore
+        .collection('utilisateurs')
+        .where(FieldPath.documentId, whereIn: utilisateurIdsEleves)
+        .where('etablissementId', isEqualTo: widget.etablissementId)
+        .get();
+
+    final utilisateursElevesMap = {
+      for (var doc in utilisateursElevesSnapshot.docs)
+        doc.id: UtilisateurModele.fromMap(doc.data(), doc.id)
+    };
+
+    // 11. Construire la map _enfantsParParent
+    Map<String, List<Map<String, dynamic>>> enfantsParParent = {};
+    for (var docFamille in familleSnapshot.docs) {
+      final parentId = docFamille.data()['parentId'] as String;
+      final eleveId = docFamille.data()['eleveId'] as String;
+
+      final eleve = elevesMap[eleveId];
+      if (eleve == null) continue;
+
+      final utilisateurEleve = utilisateursElevesMap[eleve.utilisateurId];
+      if (utilisateurEleve == null) continue;
+
+      final classeNom = classesEtablissement[eleve.classeId] ?? 'Classe inconnue';
+
+      enfantsParParent.putIfAbsent(parentId, () => []);
+      enfantsParParent[parentId]!.add({
+        'nomComplet': '${utilisateurEleve.prenom} ${utilisateurEleve.nom}',
+        'classeNom': classeNom,
+      });
+    }
+
+    // 12. Mise à jour de l'état
+    setState(() {
+      _enfantsParParent = enfantsParParent;
+    });
+
+    // 13. Charger le nombre de messages non lus
+    await _chargerNbMessagesNonLusParExpediteur(utilisateursParents.keys.toList(), isParent: true);
+  }
+
+  Future<void> _chargerElevesParClasse() async {
+    try {
+      Query query = _firestore.collection('eleves');
+
+      if (classeSelectionnee != null) {
+        query = query.where('classeId', isEqualTo: classeSelectionnee);
+      }
+
+      final elevesSnapshot = await query.get();
+
+      final tousLesEleves = elevesSnapshot.docs
+          .map((doc) => EleveModele.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+          .toList();
+
+      final utilisateurIdsEleves = tousLesEleves.map((e) => e.utilisateurId).toSet().toList();
+
+      if (utilisateurIdsEleves.isEmpty) {
+        setState(() {
+          eleves = [];
+          utilisateursEleves = {};
+          nbMessagesNonLusEleves = {};
+        });
+        return;
+      }
+
+      List<UtilisateurModele> utilisateursTrouves = [];
+      const batchSize = 10;
+
+      for (int i = 0; i < utilisateurIdsEleves.length; i += batchSize) {
+        final batchIds = utilisateurIdsEleves.sublist(
+          i,
+          i + batchSize > utilisateurIdsEleves.length ? utilisateurIdsEleves.length : i + batchSize,
+        );
+
+        final utilisateursSnapshot = await _firestore
+            .collection('utilisateurs')
+            .where(FieldPath.documentId, whereIn: batchIds)
+            .get();
+
+        final filteredUtilisateurs = utilisateursSnapshot.docs
+            .where((doc) => doc.data()['etablissementId'] == widget.etablissementId)
+            .map((doc) => UtilisateurModele.fromMap(doc.data(), doc.id))
+            .toList();
+
+        utilisateursTrouves.addAll(filteredUtilisateurs);
+      }
+
+      final utilisateursMap = {
+        for (var utilisateur in utilisateursTrouves) utilisateur.id: utilisateur
+      };
+
+      final elevesFiltres = tousLesEleves
+          .where((e) => utilisateursMap.containsKey(e.utilisateurId))
+          .toList();
+
+      setState(() {
+        eleves = elevesFiltres;
+        utilisateursEleves = utilisateursMap;
+      });
+
+      await _chargerNbMessagesNonLusParExpediteur(utilisateursMap.keys.toList(), isParent: false);
+    } catch (e) {
       setState(() {
         eleves = [];
         utilisateursEleves = {};
         nbMessagesNonLusEleves = {};
       });
-      return;
     }
-
-    List<UtilisateurModele> utilisateursTrouves = [];
-    const batchSize = 10;
-
-    for (int i = 0; i < utilisateurIdsEleves.length; i += batchSize) {
-      final batchIds = utilisateurIdsEleves.sublist(
-        i,
-        i + batchSize > utilisateurIdsEleves.length ? utilisateurIdsEleves.length : i + batchSize,
-      );
-
-      final utilisateursSnapshot = await _firestore
-          .collection('utilisateurs')
-          .where(FieldPath.documentId, whereIn: batchIds)
-          .get();
-
-      final filteredUtilisateurs = utilisateursSnapshot.docs
-          .where((doc) => doc.data()['etablissementId'] == widget.etablissementId)
-          .map((doc) => UtilisateurModele.fromMap(doc.data(), doc.id))
-          .toList();
-
-
-      utilisateursTrouves.addAll(filteredUtilisateurs);
-    }
-
-
-    final utilisateursMap = {
-      for (var utilisateur in utilisateursTrouves) utilisateur.id: utilisateur
-    };
-
-    final elevesFiltres = tousLesEleves
-        .where((e) => utilisateursMap.containsKey(e.utilisateurId))
-        .toList();
-
-
-    setState(() {
-      eleves = elevesFiltres;
-      utilisateursEleves = utilisateursMap;
-    });
-
-    await _chargerNbMessagesNonLusParExpediteur(utilisateursMap.keys.toList(), isParent: false);
-  } catch (e) {
-    setState(() {
-      eleves = [];
-      utilisateursEleves = {};
-      nbMessagesNonLusEleves = {};
-    });
   }
-}
-
-
-
-
-
 
   Future<void> _chargerNbMessagesNonLusParExpediteur(List<String> expediteurIds, {required bool isParent}) async {
-  if (enseignantDocId == null || expediteurIds.isEmpty) return;
+    if (enseignantDocId == null || expediteurIds.isEmpty) return;
 
-  Map<String, int> nbNonLusMap = {};
-  const batchSize = 10;
+    Map<String, int> nbNonLusMap = {};
+    const batchSize = 10;
 
-  for (int i = 0; i < expediteurIds.length; i += batchSize) {
-    final batchIds = expediteurIds.sublist(
-      i,
-      i + batchSize > expediteurIds.length ? expediteurIds.length : i + batchSize,
-    );
+    for (int i = 0; i < expediteurIds.length; i += batchSize) {
+      final batchIds = expediteurIds.sublist(
+        i,
+        i + batchSize > expediteurIds.length ? expediteurIds.length : i + batchSize,
+      );
 
-    // Firestore ne supporte pas whereIn sur un champ tableau, donc on récupère messages non lus 
-    // pour enseignant et on filtre localement par expediteurId dans participants.
-    final querySnapshot = await _firestore
-        .collection('messages')
-        .where('recepteurId', isEqualTo: enseignantDocId)
-        .where('lu', isEqualTo: false)
-        // .where('participants', arrayContainsAny: batchIds)  <-- Si supporté dans ta version, sinon retire et filtre localement
-        .get();
+      final querySnapshot = await _firestore
+          .collection('messages')
+          .where('recepteurId', isEqualTo: enseignantDocId)
+          .where('lu', isEqualTo: false)
+          .get();
 
-    for (var expediteurId in batchIds) {
-      // On compte les messages non lus dont l'expéditeur est dans participants (par émetteurId ici)
-      // ou dans participants, selon ta logique d’expéditeur
-      final count = querySnapshot.docs.where((doc) {
-        final data = doc.data();
-        final List<dynamic> participants = data['participants'] ?? [];
-        final emetteurId = data['emetteurId'] ?? '';
-        return !data['lu'] && participants.contains(expediteurId) && emetteurId == expediteurId;
-      }).length;
+      for (var expediteurId in batchIds) {
+        final count = querySnapshot.docs.where((doc) {
+          final data = doc.data();
+          final List<dynamic> participants = data['participants'] ?? [];
+          final emetteurId = data['emetteurId'] ?? '';
+          return !data['lu'] && participants.contains(expediteurId) && emetteurId == expediteurId;
+        }).length;
 
-      nbNonLusMap[expediteurId] = (nbNonLusMap[expediteurId] ?? 0) + count;
+        nbNonLusMap[expediteurId] = (nbNonLusMap[expediteurId] ?? 0) + count;
+      }
     }
+
+    setState(() {
+      if (isParent) {
+        nbMessagesNonLusParents = nbNonLusMap;
+      } else {
+        nbMessagesNonLusEleves = nbNonLusMap;
+      }
+    });
   }
-
-  setState(() {
-    if (isParent) {
-      nbMessagesNonLusParents = nbNonLusMap;
-    } else {
-      nbMessagesNonLusEleves = nbNonLusMap;
-    }
-  });
-}
-
 
   Future<void> _chargerNbMessagesNonLusTotal() async {
     if (enseignantDocId == null) return;
@@ -397,13 +420,11 @@ class _MessagerieEnseignantPageState extends State<MessagerieEnseignantPage> {
     return '${appwriteClient.endPoint}/storage/buckets/$bucketId/files/$fileId/view?project=${appwriteClient.config['project']}';
   }
 
-  // Filtrer la liste selon la recherche
   bool _filtrerParent(ParentModele parent, UtilisateurModele utilisateur) {
     final texteRecherche = rechercheTexte.toLowerCase();
     final nomComplet = '${utilisateur.prenom} ${utilisateur.nom}'.toLowerCase();
     if (nomComplet.contains(texteRecherche)) return true;
 
-    // Chercher aussi dans les enfants
     final enfants = _enfantsParParent[parent.id] ?? [];
     for (var enfant in enfants) {
       final nomEnfant = (enfant['nomComplet'] as String).toLowerCase();
@@ -429,7 +450,6 @@ class _MessagerieEnseignantPageState extends State<MessagerieEnseignantPage> {
               ? Center(child: Text('Erreur : $error'))
               : Column(
                   children: [
-                    // Barre de recherche
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       child: TextField(
@@ -447,7 +467,6 @@ class _MessagerieEnseignantPageState extends State<MessagerieEnseignantPage> {
                       ),
                     ),
 
-                    // Filtres sous forme de boutons
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       child: Row(
@@ -493,8 +512,8 @@ class _MessagerieEnseignantPageState extends State<MessagerieEnseignantPage> {
                               },
                               borderRadius: BorderRadius.circular(8),
                               constraints: const BoxConstraints(
-                                minWidth: 60,  // largeur minimale par bouton
-                                minHeight: 30, // hauteur minimale
+                                minWidth: 60,
+                                minHeight: 30,
                               ),
                               children: const [
                                 Padding(
@@ -511,7 +530,6 @@ class _MessagerieEnseignantPageState extends State<MessagerieEnseignantPage> {
 
                           const SizedBox(width: 12),
 
-                          // Boutons filtre classes (uniquement si élèves)
                           if (typeSelectionne == TypeUtilisateur.eleve)
                             Expanded(
                               child: SingleChildScrollView(
@@ -588,7 +606,6 @@ class _MessagerieEnseignantPageState extends State<MessagerieEnseignantPage> {
                     ),
                   ],
                 ),
-      
     );
   }
 
@@ -682,7 +699,6 @@ class _MessagerieEnseignantPageState extends State<MessagerieEnseignantPage> {
         },
       );
     } else {
-      // Élèves filtrés par recherche
       final filteredEleves = eleves.where((eleve) {
         final utilisateur = utilisateursEleves[eleve.utilisateurId];
         if (utilisateur == null) return false;
@@ -692,7 +708,6 @@ class _MessagerieEnseignantPageState extends State<MessagerieEnseignantPage> {
       if (filteredEleves.isEmpty) {
         return const Center(child: Text('Aucun élève trouvé.'));
       }
-
 
       return ListView.separated(
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),

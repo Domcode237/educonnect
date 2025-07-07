@@ -4,12 +4,11 @@ import 'package:educonnect/donnees/modeles/utilisateur_modele.dart';
 import 'package:educonnect/main.dart';
 import 'package:educonnect/modules/admin/vues/modifier_enseignant.dart';
 import 'package:educonnect/modules/admin/vues/detail_enseignant.dart';
-import 'package:educonnect/donnees/modeles/EnseignantModele.dart';
 
 class ListeEnseignants extends StatefulWidget {
   final String etablissementId;
 
-  const ListeEnseignants({Key? key, required this.etablissementId}) : super(key: key);
+  const ListeEnseignants({super.key, required this.etablissementId});
 
   @override
   State<ListeEnseignants> createState() => _ListeEnseignantsState();

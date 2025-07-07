@@ -22,17 +22,17 @@ class AppelPage extends StatefulWidget {
 }
 
 class _AppelPageState extends State<AppelPage> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final DepotNotification _depotNotif = DepotNotification();
-
+  final _firestore = FirebaseFirestore.instance;
+  final _depotNotif = DepotNotification();
   String? enseignantId;
-  List<_ClasseAvecMatieres> classesAvecMatieres = [];
   String? classeChoisieId;
   String? matiereChoisieId;
   String? matiereChoisieNom;
+  List<_ClasseAvecMatieres> classesAvecMatieres = [];
+  List<Map<String, String>> matieres = [];
   List<Map<String, dynamic>> eleves = [];
   Set<String> presents = {};
-  bool loading = false;
+  bool loading = true;
   bool saving = false;
 
   @override
@@ -42,30 +42,20 @@ class _AppelPageState extends State<AppelPage> {
   }
 
   Future<void> _prepareLocaleAndData() async {
-    await initializeDateFormatting('fr_FR', null);
+    await initializeDateFormatting('fr_FR');
     await _initData();
   }
 
   Future<void> _initData() async {
-    setState(() => loading = true);
     try {
-      final enseignantSnap = await _firestore
+      final snap = await _firestore
           .collection('enseignants')
           .where('utilisateurId', isEqualTo: widget.utilisateurId)
           .limit(1)
           .get();
 
-      if (enseignantSnap.docs.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Enseignant introuvable.")),
-          );
-        }
-        setState(() => loading = false);
-        return;
-      }
-
-      enseignantId = enseignantSnap.docs.first.id;
+      if (snap.docs.isEmpty) return;
+      enseignantId = snap.docs.first.id;
 
       final classesSnap = await _firestore
           .collection('classes')
@@ -77,326 +67,330 @@ class _AppelPageState extends State<AppelPage> {
           .where('enseignantId', isEqualTo: enseignantId)
           .get();
 
-      final enseignementsMatieres = enseignementsSnap.docs
-          .map((d) => d.data()['matiereId'] as String)
-          .toSet();
+      final enseignementMatieres =
+          enseignementsSnap.docs.map((e) => e['matiereId'] as String).toSet();
 
-      List<_ClasseAvecMatieres> temp = [];
-
-      for (final classeDoc in classesSnap.docs) {
-        final data = classeDoc.data();
+      final temp = <_ClasseAvecMatieres>[];
+      for (var doc in classesSnap.docs) {
+        final data = doc.data();
         final enseignantsIds = List<String>.from(data['enseignantsIds'] ?? []);
-        if (!enseignantsIds.contains(enseignantId)) {
-          continue;
-        }
+        if (!enseignantsIds.contains(enseignantId)) continue;
 
-        final classeMatieres = List<String>.from(data['matieresIds'] ?? []);
-        final matieresPourEnseignant = classeMatieres
-            .where((m) => enseignementsMatieres.contains(m))
-            .toList();
+        final matieresIds = List<String>.from(data['matieresIds'] ?? []);
+        final matieresAssociees =
+            matieresIds.where((id) => enseignementMatieres.contains(id)).toList();
 
-        if (matieresPourEnseignant.isNotEmpty) {
+        if (matieresAssociees.isNotEmpty) {
           temp.add(_ClasseAvecMatieres(
-            classeId: classeDoc.id,
-            nomClasse: data['nom'] ?? '',
-            niveauClasse: data['niveau'] ?? '',
-            matieresIds: matieresPourEnseignant,
+            classeId: doc.id,
+            nomClasse: data['nom'],
+            niveauClasse: data['niveau'],
+            matieresIds: matieresAssociees,
           ));
         }
       }
 
-      setState(() => classesAvecMatieres = temp);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Erreur lors du chargement : $e")),
-        );
-      }
-    } finally {
+      setState(() {
+        classesAvecMatieres = temp;
+        loading = false;
+      });
+    } catch (_) {
       setState(() => loading = false);
     }
   }
 
-  Future<void> fetchEleves(String classeId) async {
-    setState(() {
-      loading = true;
-      eleves.clear();
-      presents.clear();
-    });
+  Future<void> _chargerMatieres(String classeId) async {
+    matieres.clear();
+    final classeDoc = await _firestore.collection('classes').doc(classeId).get();
+    final matieresIds = List<String>.from(classeDoc['matieresIds'] ?? []);
 
-    try {
-      final classeDoc = await _firestore.collection('classes').doc(classeId).get();
-      final elevesIds = List<String>.from(classeDoc['elevesIds'] ?? []);
-
-      final elevesFutures = elevesIds.map((eleveId) async {
-        final eleveDoc = await _firestore.collection('eleves').doc(eleveId).get();
-        if (!eleveDoc.exists) return null;
-
-        final utilisateurId = eleveDoc['utilisateurId'];
-        final utilisateurDoc = await _firestore.collection('utilisateurs').doc(utilisateurId).get();
-        if (!utilisateurDoc.exists) return null;
-
-        return {
-          'eleveId': eleveId,
-          'utilisateurId': utilisateurId,
-          'nom': utilisateurDoc['nom'],
-          'prenom': utilisateurDoc['prenom'],
-          'photo': utilisateurDoc['photo'],
-        };
-      });
-
-      final results = await Future.wait(elevesFutures);
-      setState(() => eleves = results.whereType<Map<String, dynamic>>().toList());
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Erreur chargement élèves : $e")),
-        );
-      }
-    } finally {
-      setState(() => loading = false);
-    }
-  }
-
-  Future<void> enregistrerAppel() async {
-    if (classeChoisieId == null || matiereChoisieId == null || enseignantId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Veuillez sélectionner une classe et matière.")),
-      );
-      return;
-    }
-
-    setState(() => saving = true);
-
-    try {
-      final absents = eleves
-          .map((e) => e['eleveId'] as String)
-          .where((id) => !presents.contains(id))
-          .toList();
-
-      await _firestore.collection('appels').add({
-        'classeId': classeChoisieId,
-        'matiereId': matiereChoisieId,
-        'enseignantId': enseignantId,
-        'etablissementId': widget.etablissementId,
-        'elevesPresents': presents.toList(),
-        'elevesAbsents': absents,
-        'createdAt': Timestamp.now(),
-        'date': Timestamp.now(),
-      });
-
-      if (absents.isNotEmpty) {
-        final famillesSnap = await _firestore
-            .collection('famille')
-            .where('eleveId', whereIn: absents)
-            .get();
-
-        final dateFormat = DateFormat('dd MMMM yyyy', 'fr_FR');
-        final dateStr = dateFormat.format(DateTime.now());
-
-        final Map<String, String> eleveNoms = {
-          for (var e in eleves)
-            e['eleveId'] as String: "${e['prenom']} ${e['nom']}"
-        };
-
-        List<NotificationModele> notifications = [];
-
-        for (final doc in famillesSnap.docs) {
-          final famille = FamilleModele.fromMap(doc.data(), doc.id);
-          final nomEleve = eleveNoms[famille.eleveId] ?? "votre enfant";
-
-          notifications.add(NotificationModele(
-            id: '',
-            eleveId: famille.eleveId,
-            parentId: famille.parentId,
-            expediteurId: enseignantId!,
-            expediteurRole: 'enseignant',
-            etablissementId: widget.etablissementId,
-            titre: 'Alerte d\'absence',
-            message:
-                "Le $dateStr, $nomEleve est absent(e) en classe ${_getNomClasse()} pour la matière ${_getNomMatiere()}.",
-            lu: false,
-            createdAt: DateTime.now(),
-            type: 'absence',
-            metadata: {
-              'classeId': classeChoisieId!,
-              'matiereId': matiereChoisieId!,
-            },
-          ));
-        }
-
-        await _depotNotif.ajouterNotificationsParLot(notifications);
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Appel enregistré et notifications envoyées.")),
-        );
-        setState(() {
-          classeChoisieId = null;
-          matiereChoisieId = null;
-          matiereChoisieNom = null;
-          eleves.clear();
-          presents.clear();
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Erreur appel/notification : $e")),
-        );
-      }
-    } finally {
-      setState(() => saving = false);
-    }
-  }
-
-  String _getNomClasse() {
-    final classe = classesAvecMatieres.firstWhere(
-      (c) => c.classeId == classeChoisieId,
-      orElse: () => _ClasseAvecMatieres(
-        classeId: '',
-        nomClasse: 'inconnue',
-        niveauClasse: '',
-        matieresIds: [],
-      ),
-    );
-    return classe.nomClasse;
-  }
-
-  String _getNomMatiere() => matiereChoisieNom ?? 'inconnue';
-
-  Future<List<Map<String, String>>> _fetchMatieresForClasse(
-      String enseignantId, String classeId) async {
     final enseignementsSnap = await _firestore
         .collection('enseignements')
         .where('enseignantId', isEqualTo: enseignantId)
         .get();
 
-    final classeDoc = await _firestore.collection('classes').doc(classeId).get();
-    final classeMatieres = List<String>.from(classeDoc['matieresIds'] ?? []);
-
-    final List<Map<String, String>> matieres = [];
-    for (final doc in enseignementsSnap.docs) {
-      final matiereId = doc['matiereId'];
-      if (classeMatieres.contains(matiereId)) {
-        final matiereDoc = await _firestore.collection('matieres').doc(matiereId).get();
-        if (matiereDoc.exists) {
-          matieres.add({'id': matiereId, 'nom': matiereDoc['nom']});
-        }
+    for (var doc in enseignementsSnap.docs) {
+      final matId = doc['matiereId'];
+      if (matieresIds.contains(matId)) {
+        final matDoc = await _firestore.collection('matieres').doc(matId).get();
+        matieres.add({'id': matId, 'nom': matDoc['nom']});
       }
     }
-
-    return matieres;
+    setState(() {});
   }
+
+  Future<void> _chargerEleves(String classeId) async {
+    final doc = await _firestore.collection('classes').doc(classeId).get();
+    final ids = List<String>.from(doc['elevesIds'] ?? []);
+
+    final futures = ids.map((id) async {
+      final eDoc = await _firestore.collection('eleves').doc(id).get();
+      if (!eDoc.exists) return null;
+      final uId = eDoc['utilisateurId'];
+      final uDoc = await _firestore.collection('utilisateurs').doc(uId).get();
+      if (!uDoc.exists) return null;
+      return {
+        'eleveId': id,
+        'prenom': uDoc['prenom'],
+        'nom': uDoc['nom'],
+        'photo': uDoc['photo']
+      };
+    });
+
+    final results = await Future.wait(futures);
+    setState(() {
+      eleves = results.whereType<Map<String, dynamic>>().toList();
+      presents.clear();
+    });
+  }
+
+  void _toutCocher() {
+    setState(() {
+      presents = eleves.map((e) => e['eleveId'] as String).toSet();
+    });
+  }
+
+  void _toutDecocher() {
+    setState(() => presents.clear());
+  }
+
+  Future<void> enregistrerAppel() async {
+    if (classeChoisieId == null || matiereChoisieId == null || enseignantId == null) return;
+
+    setState(() => saving = true);
+    final absents = eleves.map((e) => e['eleveId']).where((id) => !presents.contains(id)).toList();
+
+    await _firestore.collection('appels').add({
+      'classeId': classeChoisieId,
+      'matiereId': matiereChoisieId,
+      'enseignantId': enseignantId,
+      'etablissementId': widget.etablissementId,
+      'elevesPresents': presents.toList(),
+      'elevesAbsents': absents,
+      'createdAt': Timestamp.now(),
+      'date': Timestamp.now(),
+    });
+
+    if (absents.isNotEmpty) {
+      final famillesSnap = await _firestore
+          .collection('famille')
+          .where('eleveId', whereIn: absents)
+          .get();
+
+      final noms = {for (var e in eleves) e['eleveId']: "${e['prenom']} ${e['nom']}"};
+      final now = DateTime.now().toLocal();
+
+      String formaterDateAvecContexte(DateTime date) {
+        final localDate = date.toLocal();
+
+        final heure = DateFormat('HH:mm', 'fr_FR').format(localDate);
+
+        if (now.year == localDate.year && now.month == localDate.month && now.day == localDate.day) {
+          return "aujourd’hui à $heure";
+        } else if (now.subtract(const Duration(days: 1)).year == localDate.year &&
+            now.subtract(const Duration(days: 1)).month == localDate.month &&
+            now.subtract(const Duration(days: 1)).day == localDate.day) {
+          return "hier à $heure";
+        } else {
+          final dateStr = DateFormat('dd MMMM yyyy', 'fr_FR').format(localDate);
+          return "$dateStr à $heure";
+        }
+      }
+
+      final dateStr = formaterDateAvecContexte(now);
+      List<NotificationModele> notifs = [];
+
+      for (var doc in famillesSnap.docs) {
+        final famille = FamilleModele.fromMap(doc.data(), doc.id);
+        notifs.add(NotificationModele(
+          id: '',
+          eleveId: famille.eleveId,
+          parentId: famille.parentId,
+          expediteurId: enseignantId!,
+          expediteurRole: 'enseignant',
+          etablissementId: widget.etablissementId,
+          titre: 'Absence',
+          message:
+              "Le $dateStr, ${noms[famille.eleveId] ?? 'votre enfant'} était absent(e) en ${_getNomMatiere()} (${_getNomClasse()}).",
+          lu: false,
+          createdAt: DateTime.now(),
+          type: 'absence',
+          metadata: {'classeId': classeChoisieId!, 'matiereId': matiereChoisieId!},
+        ));
+      }
+
+      await _depotNotif.ajouterNotificationsParLot(notifs);
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Appel enregistré.")));
+
+    setState(() {
+      classeChoisieId = null;
+      matiereChoisieId = null;
+      matiereChoisieNom = null;
+      matieres.clear();
+      eleves.clear();
+      presents.clear();
+      saving = false;
+    });
+  }
+
+  String _getNomClasse() => classesAvecMatieres
+      .firstWhere((c) => c.classeId == classeChoisieId,
+          orElse: () => _ClasseAvecMatieres(classeId: '', nomClasse: '...', niveauClasse: '', matieresIds: []))
+      .nomClasse;
+
+  String _getNomMatiere() => matiereChoisieNom ?? '...';
 
   @override
   Widget build(BuildContext context) {
-    if (loading || enseignantId == null) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+    if (loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     return Scaffold(
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            DropdownButton<String>(
-              value: classeChoisieId,
-              hint: const Text("Choisir classe"),
-              isExpanded: true,
-              items: classesAvecMatieres
-                  .map((c) => DropdownMenuItem(
-                        value: c.classeId,
-                        child: Text("${c.nomClasse} (${c.niveauClasse})"),
-                      ))
-                  .toList(),
-              onChanged: (val) {
-                setState(() {
-                  classeChoisieId = val;
-                  matiereChoisieId = null;
-                  matiereChoisieNom = null;
-                  eleves.clear();
-                  presents.clear();
-                });
-              },
-            ),
-            if (classeChoisieId != null && enseignantId != null)
-              FutureBuilder<List<Map<String, String>>>(
-                future: _fetchMatieresForClasse(
-                    enseignantId!, classeChoisieId!),
-                builder: (ctx, snap) {
-                  if (snap.connectionState == ConnectionState.waiting) {
-                    return const LinearProgressIndicator();
-                  }
-                  if (snap.hasError) {
-                    return const Text("Erreur chargement matières");
-                  }
-                  final data = snap.data ?? [];
-                  return DropdownButton<String>(
-                    value: matiereChoisieId,
-                    hint: const Text("Choisir matière"),
-                    isExpanded: true,
-                    items: data
-                        .map((m) => DropdownMenuItem(
-                              value: m['id'],
-                              child: Text(m['nom'] ?? ''),
-                            ))
-                        .toList(),
-                    onChanged: (val) async {
-                      setState(() {
-                        matiereChoisieId = val;
-                        eleves.clear();
-                        presents.clear();
-                        matiereChoisieNom = null;
-                      });
-                      if (val != null && classeChoisieId != null && enseignantId != null) {
-                        final mats = await _fetchMatieresForClasse(
-                            enseignantId!, classeChoisieId!);
-                        final matSelectionnee = mats.firstWhere(
-                            (m) => m['id'] == val,
-                            orElse: () => {'nom': 'inconnue'});
-                        setState(() {
-                          matiereChoisieNom = matSelectionnee['nom'];
-                        });
-                        await fetchEleves(classeChoisieId!);
-                      }
-                    },
-                  );
-                },
-              ),
-            const Divider(),
-            Expanded(
-              child: eleves.isEmpty
-                  ? const Center(child: Text("Aucun élève"))
-                  : ListView(
-                      children: eleves.map((e) {
-                        final eleveId = e['eleveId'] as String;
-                        return CheckboxListTile(
-                          title: Text("${e['prenom']} ${e['nom']}"),
-                          value: presents.contains(eleveId),
-                          onChanged: (val) {
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Choisir la classe', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              const SizedBox(height: 8),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: classesAvecMatieres.map((c) {
+                    final selected = c.classeId == classeChoisieId;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        label: Text('${c.nomClasse} (${c.niveauClasse})'),
+                        selected: selected,
+                        onSelected: (selected) async {
+                          if (selected) {
                             setState(() {
-                              if (val == true) {
-                                presents.add(eleveId);
-                              } else {
-                                presents.remove(eleveId);
-                              }
+                              classeChoisieId = c.classeId;
+                              matiereChoisieId = null;
+                              matiereChoisieNom = null;
+                              matieres.clear();
+                              eleves.clear();
+                              presents.clear();
                             });
+                            await _chargerMatieres(c.classeId);
+                          }
+                        },
+                        selectedColor: Colors.teal,
+                        backgroundColor: Colors.pink[50],
+                        labelStyle: TextStyle(
+                          color: selected ? Colors.white : Colors.black,
+                          fontSize: 14,
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (classeChoisieId != null) ...[
+                const Text('Choisir la matière', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                const SizedBox(height: 8),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: matieres.map((m) {
+                      final selected = m['id'] == matiereChoisieId;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          label: Text(m['nom'] ?? ''),
+                          selected: selected,
+                          onSelected: (selected) async {
+                            if (selected) {
+                              setState(() {
+                                matiereChoisieId = m['id'];
+                                matiereChoisieNom = m['nom'];
+                                eleves.clear();
+                                presents.clear();
+                              });
+                              await _chargerEleves(classeChoisieId!);
+                            }
                           },
-                        );
-                      }).toList(),
+                          selectedColor: Colors.teal,
+                          backgroundColor: Colors.grey[200],
+                          labelStyle: TextStyle(
+                            color: selected ? Colors.white : Colors.black,
+                            fontSize: 14,
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 20),
+              if (eleves.isNotEmpty) ...[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    TextButton(
+                      onPressed: _toutCocher,
+                      child: const Text('Tout marquer présent'),
+                      style: TextButton.styleFrom(foregroundColor: Colors.teal),
                     ),
-            ),
-            ElevatedButton(
-              onPressed: saving ? null : enregistrerAppel,
-              child: saving
-                  ? const CircularProgressIndicator()
-                  : const Text("Valider et Notifier"),
-            ),
-          ],
+                    TextButton(
+                      onPressed: _toutDecocher,
+                      child: const Text('Tout marquer absent'),
+                      style: TextButton.styleFrom(foregroundColor: Colors.teal),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                ListView.builder(
+                  physics: const NeverScrollableScrollPhysics(),
+                  shrinkWrap: true,
+                  itemCount: eleves.length,
+                  itemBuilder: (context, index) {
+                    final e = eleves[index];
+                    final id = e['eleveId'];
+                    return CheckboxListTile(
+                      title: Text('${e['prenom']} ${e['nom']}'),
+                      value: presents.contains(id),
+                      onChanged: (v) {
+                        setState(() {
+                          if (v == true) {
+                            presents.add(id);
+                          } else {
+                            presents.remove(id);
+                          }
+                        });
+                      },
+                    );
+                  },
+                ),
+                const SizedBox(height: 12),
+                Center(
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.send),
+                    label: saving
+                        ? const SizedBox(
+                            height: 16,
+                            width: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Text('Valider et Notifier'),
+                    onPressed: saving ? null : enregistrerAppel,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.teal,
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    ),
+                  ),
+                ),
+              ] else if (classeChoisieId != null && matiereChoisieId != null) ...[
+                const Center(child: Text('Aucun élève')),
+              ],
+            ],
+          ),
         ),
       ),
     );

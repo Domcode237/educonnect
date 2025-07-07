@@ -1,14 +1,16 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:educonnect/main.dart';
 
-import 'dashboard_eleve_page.dart';
 import 'notes_eleve_page.dart';
 import 'notifications_page.dart';
-import 'parametres_eleve_page.dart';
-import 'messagerie_eleve_page.dart'; // 🔸 à créer comme messagerie parent
+import 'messagerie_eleve_page.dart';
+import 'liste_devoir.dart';
+import 'annonces.dart';  // <-- à créer / adapter
 
 import 'package:educonnect/vues/commun/deconnexion.dart';
+import 'profil.dart';
 
 class HomeEleve extends StatefulWidget {
   final String etablissementId;
@@ -28,123 +30,178 @@ class _HomeEleveState extends State<HomeEleve> {
   int _selectedIndex = 0;
   String? _eleveId;
   String? _photoUrl;
+
   int nbMessagesNonLus = 0;
   int nbNotifsNonLues = 0;
+  int nbDevoirsNonLus = 0;
+  int nbAnnoncesNonLues = 0;
 
-  late List<String> pageTitles;
-  late List<IconData> pageIcons;
+  StreamSubscription? _messagesSub;
+  StreamSubscription? _notificationsSub;
+  StreamSubscription? _devoirsSub;
+  StreamSubscription? _annoncesSub;
+
+  final List<String> pageTitles = [
+    "Mes notes",
+    "Notifications",
+    "Messagerie",
+    "Devoirs",
+    "Annonces",
+  ];
+
+  final List<IconData> pageIcons = [
+    Icons.school,
+    Icons.notifications,
+    Icons.message_rounded,
+    Icons.assignment_turned_in_outlined,
+    Icons.campaign,
+  ];
+
   late List<Widget> pages;
 
   @override
   void initState() {
     super.initState();
-    _loadEleveData();
-
-    pageTitles = const [
-      "Tableau de bord",
-      "Mes notes",
-      "Notifications",
-      "Messagerie",
-      "Paramètres",
-    ];
-
-    pageIcons = const [
-      Icons.dashboard,
-      Icons.school,
-      Icons.notifications,
-      Icons.message_rounded,
-      Icons.settings,
-    ];
 
     pages = [
-      DashboardElevePage(),
-      NotesElevePage(),
+      NotesElevePage(utilisateurId: widget.utilisateurId),
+      ListeNotificationsElevePage(utilisateurId: widget.utilisateurId),
+      const SizedBox(),  // placeholder, sera remplacé dans _initEleveData
       const SizedBox(),
       const SizedBox(),
-      ParametresElevePage(),
     ];
+
+    _initEleveData();
   }
 
-  Future<void> _loadEleveData() async {
-  try {
-    final eleveSnap = await FirebaseFirestore.instance
-        .collection('eleves')
-        .where('utilisateurId', isEqualTo: widget.utilisateurId)
-        .limit(1)
-        .get();
+  Future<void> _initEleveData() async {
+    try {
+      final eleveSnap = await FirebaseFirestore.instance
+          .collection('eleves')
+          .where('utilisateurId', isEqualTo: widget.utilisateurId)
+          .limit(1)
+          .get();
 
-    if (eleveSnap.docs.isNotEmpty) {
-      _eleveId = eleveSnap.docs.first.id;
+      if (eleveSnap.docs.isNotEmpty) {
+        _eleveId = eleveSnap.docs.first.id;
 
-      // 👇 On configure la page de messagerie SEULEMENT si _eleveId n’est pas null
-      pages[3] = MessagerieElevePage(
-        etablissementId: widget.etablissementId,
-        utilisateurId: widget.utilisateurId,
-        eleveId: _eleveId!, // ici on peut forcer car on est dans le if
-      );
-    }
+        pages[2] = MessagerieElevePage(
+          etablissementId: widget.etablissementId,
+          utilisateurId: widget.utilisateurId,
+          eleveId: _eleveId!,
+        );
+        pages[3] = DevoirElevePage(eleveId: _eleveId!);
+        pages[4] = ListeAnnoncesElevePage(
+          utilisateurId: widget.utilisateurId,
+          etablissementId: widget.etablissementId,
+        );
+      }
 
-    final userSnap = await FirebaseFirestore.instance
-        .collection('utilisateurs')
-        .doc(widget.utilisateurId)
-        .get();
+      final userSnap = await FirebaseFirestore.instance
+          .collection('utilisateurs')
+          .doc(widget.utilisateurId)
+          .get();
 
-    if (userSnap.exists) {
-      final data = userSnap.data();
-      if (data != null && data.containsKey('photo')) {
-        final fileId = data['photo'] as String?;
+      if (userSnap.exists) {
+        final data = userSnap.data();
+        final fileId = data?['photoFileId'] as String?;
         if (fileId != null && fileId.isNotEmpty) {
           _photoUrl = _getAppwriteImageUrl(fileId);
+        } else {
+          _photoUrl = null;
         }
       }
+
+      setState(() {});
+
+      _listenToRealtimeData();
+    } catch (e) {
+      debugPrint("Erreur chargement élève : $e");
     }
-
-    await _chargerNombreMessagesNonLus();
-    await _chargerNombreNotifsNonLues();
-
-    pages[2] = NotificationsPage();
-
-    setState(() {});
-  } catch (e) {
-    debugPrint("Erreur de chargement élève: $e");
   }
-}
 
-
-  Future<void> _chargerNombreMessagesNonLus() async {
+  void _listenToRealtimeData() {
     if (_eleveId == null) return;
-    final query = await FirebaseFirestore.instance
+
+    _messagesSub?.cancel();
+    _notificationsSub?.cancel();
+    _devoirsSub?.cancel();
+    _annoncesSub?.cancel();
+
+    _messagesSub = FirebaseFirestore.instance
         .collection('messages')
         .where('recepteurId', isEqualTo: _eleveId)
         .where('lu', isEqualTo: false)
-        .get();
-    nbMessagesNonLus = query.docs.length;
-  }
+        .snapshots()
+        .listen((snap) {
+      setState(() {
+        nbMessagesNonLus = snap.docs.length;
+      });
+    });
 
-  Future<void> _chargerNombreNotifsNonLues() async {
-    if (_eleveId == null) return;
-    final query = await FirebaseFirestore.instance
+    _notificationsSub = FirebaseFirestore.instance
         .collection('notifications')
         .where('eleveId', isEqualTo: _eleveId)
-        .where('lu', isEqualTo: false)
-        .get();
-    nbNotifsNonLues = query.docs.length;
+        .where('destinataireId', isEqualTo: _eleveId)
+        .where('vu', isEqualTo: false)
+        .snapshots()
+        .listen((snap) {
+      setState(() {
+        nbNotifsNonLues = snap.docs.length;
+      });
+    });
+
+    _devoirsSub = FirebaseFirestore.instance
+        .collection('devoirs')
+        .where('eleveIds', arrayContains: _eleveId)
+        .snapshots()
+        .listen((snap) {
+      int nonLus = 0;
+      for (var doc in snap.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        final lus = List<String>.from(data['lu'] ?? []);
+        if (!lus.contains(_eleveId)) nonLus++;
+      }
+      setState(() {
+        nbDevoirsNonLus = nonLus;
+      });
+    });
+
+    _annoncesSub = FirebaseFirestore.instance
+        .collection('annonces')
+        .where('utilisateursConcernees', arrayContains: widget.utilisateurId)
+        .snapshots()
+        .listen((snap) {
+      int nonLues = 0;
+      for (var doc in snap.docs) {
+        final data = doc.data();
+        final luePar = List<String>.from(data['luePar'] ?? []);
+        if (!luePar.contains(widget.utilisateurId)) nonLues++;
+      }
+      setState(() {
+        nbAnnoncesNonLues = nonLues;
+      });
+    });
   }
 
-  String? _getAppwriteImageUrl(String? fileId) {
-    if (fileId == null || fileId.isEmpty) return null;
+  @override
+  void dispose() {
+    _messagesSub?.cancel();
+    _notificationsSub?.cancel();
+    _devoirsSub?.cancel();
+    _annoncesSub?.cancel();
+    super.dispose();
+  }
+
+  String? _getAppwriteImageUrl(String fileId) {
     const bucketId = '6854df330032c7be516c';
     return '${appwriteClient.endPoint}/storage/buckets/$bucketId/files/$fileId/view?project=${appwriteClient.config['project']}';
   }
 
-  void _onItemTapped(int index) async {
-    setState(() => _selectedIndex = index);
-
-    if (index == 2 || index == 3) {
-      await _chargerNombreMessagesNonLus();
-      await _chargerNombreNotifsNonLues();
-      setState(() {});
-    }
+  void _onItemTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
   }
 
   Widget _buildBadge(int count) {
@@ -159,7 +216,11 @@ class _HomeEleveState extends State<HomeEleve> {
         child: Center(
           child: Text(
             '$count',
-            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ),
       ),
@@ -169,7 +230,10 @@ class _HomeEleveState extends State<HomeEleve> {
   Widget _iconWithBadge(IconData icon, int count) {
     return Stack(
       clipBehavior: Clip.none,
-      children: [Icon(icon), if (count > 0) _buildBadge(count)],
+      children: [
+        Icon(icon),
+        if (count > 0) _buildBadge(count),
+      ],
     );
   }
 
@@ -183,6 +247,7 @@ class _HomeEleveState extends State<HomeEleve> {
       drawer: Drawer(
         shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
         child: ListView(
+          padding: EdgeInsets.zero,
           children: [
             DrawerHeader(
               decoration: BoxDecoration(color: Colors.blue.shade700),
@@ -191,7 +256,8 @@ class _HomeEleveState extends State<HomeEleve> {
                 children: [
                   CircleAvatar(
                     radius: 30,
-                    backgroundImage: _photoUrl != null ? NetworkImage(_photoUrl!) : null,
+                    backgroundImage:
+                        _photoUrl != null ? NetworkImage(_photoUrl!) : null,
                     backgroundColor: Colors.white,
                     child: _photoUrl == null
                         ? const Icon(Icons.person, size: 32, color: Colors.grey)
@@ -209,7 +275,15 @@ class _HomeEleveState extends State<HomeEleve> {
               ListTile(
                 leading: _iconWithBadge(
                   pageIcons[i],
-                  i == 2 ? nbNotifsNonLues : i == 3 ? nbMessagesNonLus : 0,
+                  i == 1
+                      ? nbNotifsNonLues
+                      : i == 2
+                          ? nbMessagesNonLus
+                          : i == 3
+                              ? nbDevoirsNonLus
+                              : i == 4
+                                  ? nbAnnoncesNonLues
+                                  : 0,
                 ),
                 title: Text(pageTitles[i]),
                 onTap: () {
@@ -233,7 +307,18 @@ class _HomeEleveState extends State<HomeEleve> {
             icon: _photoUrl != null
                 ? CircleAvatar(radius: 16, backgroundImage: NetworkImage(_photoUrl!))
                 : const Icon(Icons.account_circle),
-            onPressed: () => _onItemTapped(4),
+            tooltip: 'Profil',
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) =>
+                      ProfilUtilisateurPage(utilisateurId: widget.utilisateurId),
+                ),
+              );
+
+              await _initEleveData();
+            },
           ),
           IconButton(
             icon: const Icon(Icons.logout),
@@ -244,19 +329,39 @@ class _HomeEleveState extends State<HomeEleve> {
       body: isWideScreen
           ? Row(
               children: [
-                NavigationRail(
-                  selectedIndex: _selectedIndex,
-                  onDestinationSelected: _onItemTapped,
-                  labelType: NavigationRailLabelType.all,
-                  destinations: List.generate(pageTitles.length, (i) {
-                    return NavigationRailDestination(
-                      icon: _iconWithBadge(
-                        pageIcons[i],
-                        i == 2 ? nbNotifsNonLues : i == 3 ? nbMessagesNonLus : 0,
+                SizedBox(
+                  height: double.infinity,
+                  child: SingleChildScrollView(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 300),
+                      child: IntrinsicHeight(
+                        child: NavigationRail(
+                          selectedIndex: _selectedIndex,
+                          onDestinationSelected: _onItemTapped,
+                          labelType: NavigationRailLabelType.all,
+                          destinations: List.generate(pageTitles.length, (i) {
+                            return NavigationRailDestination(
+                              icon: _iconWithBadge(
+                                pageIcons[i],
+                                i == 1
+                                    ? nbNotifsNonLues
+                                    : i == 2
+                                        ? nbMessagesNonLus
+                                        : i == 3
+                                            ? nbDevoirsNonLus
+                                            : i == 4
+                                                ? nbAnnoncesNonLues
+                                                : 0,
+                              ),
+                              label: Text(pageTitles[i]),
+                            );
+                          }),
+                          leading: const SizedBox(height: 25),
+                          trailing: const SizedBox(height: 250),
+                        ),
                       ),
-                      label: Text(pageTitles[i]),
-                    );
-                  }),
+                    ),
+                  ),
                 ),
                 const VerticalDivider(thickness: 1, width: 1),
                 Expanded(child: pages[_selectedIndex]),
@@ -273,7 +378,15 @@ class _HomeEleveState extends State<HomeEleve> {
                 return BottomNavigationBarItem(
                   icon: _iconWithBadge(
                     pageIcons[i],
-                    i == 2 ? nbNotifsNonLues : i == 3 ? nbMessagesNonLus : 0,
+                    i == 1
+                        ? nbNotifsNonLues
+                        : i == 2
+                            ? nbMessagesNonLus
+                            : i == 3
+                                ? nbDevoirsNonLus
+                                : i == 4
+                                    ? nbAnnoncesNonLues
+                                    : 0,
                   ),
                   label: pageTitles[i],
                 );

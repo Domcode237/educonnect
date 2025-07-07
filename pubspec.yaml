@@ -10,6 +10,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
 
   cupertino_icons: ^1.0.8
   firebase_core: ^3.13.1
@@ -30,6 +32,7 @@ dependencies:
   firebase_storage: ^12.4.6
   appwrite: ^17.0.1
   emoji_picker_flutter: ^4.3.0
+  file_picker: ^10.2.0
 
 dev_dependencies:
   flutter_test:
@@ -38,6 +41,7 @@ dev_dependencies:
   flutter_lints: ^5.0.0
   get: ^4.7.2
   font_awesome_flutter: ^10.5.0
+  dart_code_metrics: ^4.19.2
 
 #flutter native splash
 flutter_native_splash:

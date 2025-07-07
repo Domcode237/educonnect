@@ -61,7 +61,7 @@ class _ListeElevesState extends State<ListeEleves> {
 
       utilisateursMap = {
         for (var doc in usersSnap.docs)
-          doc.id: UtilisateurModele.fromMap(doc.data() as Map<String, dynamic>, doc.id)
+        doc.id: UtilisateurModele.fromMap(doc.data(), doc.id),
       };
 
       // Charger les élèves liés aux utilisateurs chargés

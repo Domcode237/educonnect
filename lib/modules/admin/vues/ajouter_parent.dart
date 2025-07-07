@@ -5,13 +5,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:appwrite/appwrite.dart';
-import 'package:appwrite/models.dart';
 import 'package:educonnect/main.dart';
 
 class AjoutParentVue extends StatefulWidget {
   final String etablissementId;
 
-  const AjoutParentVue({Key? key, required this.etablissementId}) : super(key: key);
+  const AjoutParentVue({super.key, required this.etablissementId});
 
   @override
   State<AjoutParentVue> createState() => _AjoutParentVueState();
@@ -78,11 +77,12 @@ class _AjoutParentVueState extends State<AjoutParentVue> {
       final result = await appwriteStorage.createFile(
         bucketId: bucketId,
         fileId: ID.unique(),
-        file: InputFile(
+        file: InputFile.fromBytes(
           bytes: fileBytes,
           filename: fileName,
           contentType: 'image/png',
         ),
+
       );
       return result.$id;
     } catch (e) {

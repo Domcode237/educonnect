@@ -1,114 +1,175 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:educonnect/donnees/modeles/utilisateur_modele.dart';
-import 'package:educonnect/donnees/modeles/EnseignantModele.dart';
-import 'page_message_detail.dart';
 import 'package:educonnect/main.dart';
 
-class MessagerieParentPage extends StatefulWidget {
-  final String utilisateurId;
-  final String etablissementId;
-  final String parentId;
+import 'dashboard_eleve_page.dart';
+import 'notes_eleve_page.dart';
+import 'notifications_page.dart';
+import 'messagerie_eleve_page.dart';
+import 'liste_devoir.dart'; // 👈 à créer si ce n’est pas déjà
 
-  const MessagerieParentPage({
+import 'package:educonnect/vues/commun/deconnexion.dart';
+
+class HomeEleve extends StatefulWidget {
+  final String etablissementId;
+  final String utilisateurId;
+
+  const HomeEleve({
     Key? key,
-    required this.utilisateurId,
     required this.etablissementId,
-    required this.parentId,
+    required this.utilisateurId,
   }) : super(key: key);
 
   @override
-  State<MessagerieParentPage> createState() => _MessagerieParentPageState();
+  State<HomeEleve> createState() => _HomeEleveState();
 }
 
-class _MessagerieParentPageState extends State<MessagerieParentPage> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+class _HomeEleveState extends State<HomeEleve> {
+  int _selectedIndex = 0;
+  String? _eleveId;
+  String? _photoUrl;
+  int nbMessagesNonLus = 0;
+  int nbNotifsNonLues = 0;
+  int nbDevoirsNonLus = 0;
 
-  Map<String, UtilisateurModele> utilisateursMap = {};
-  Map<String, List<String>> matieresParEnseignant = {};
-  List<EnseignantModele> enseignants = [];
-
-  bool isLoading = true;
-  String? error;
+  late List<String> pageTitles;
+  late List<IconData> pageIcons;
+  late List<Widget> pages;
 
   @override
   void initState() {
     super.initState();
-    _loadInitialData();
+    _loadEleveData();
+
+    pageTitles = const [
+      "Tableau de bord",
+      "Mes notes",
+      "Notifications",
+      "Messagerie",
+      "Devoirs",
+    ];
+
+    pageIcons = const [
+      Icons.dashboard,
+      Icons.school,
+      Icons.notifications,
+      Icons.message_rounded,
+      Icons.assignment_turned_in_outlined,
+    ];
+
+    pages = [
+      DashboardElevePage(),
+      NotesElevePage(),
+      const SizedBox(),
+      const SizedBox(),
+      const SizedBox(), // placeholder devoirs
+    ];
   }
 
-  Future<void> _loadInitialData() async {
-    try {
-      final enseignantsSnapshot = await _firestore.collection('enseignants').get();
-      enseignants = enseignantsSnapshot.docs
-          .map((doc) => EnseignantModele.fromMap(doc.data(), doc.id))
-          .toList();
-
-      final utilisateurIds = enseignants.map((e) => e.utilisateurId).toSet().toList();
-
-      final utilisateursSnapshot = await _firestore
-          .collection('utilisateurs')
-          .where(FieldPath.documentId, whereIn: utilisateurIds)
-          .where('etablissementId', isEqualTo: widget.etablissementId)
-          .get();
-
-      utilisateursMap = {
-        for (var doc in utilisateursSnapshot.docs)
-          doc.id: UtilisateurModele.fromMap(doc.data(), doc.id)
-      };
-
-      enseignants = enseignants.where((e) => utilisateursMap.containsKey(e.utilisateurId)).toList();
-
-      await _loadMatieres();
-
-      setState(() => isLoading = false);
-    } catch (e, st) {
-      print('❌ Erreur chargement init : $e\n$st');
-      setState(() {
-        error = e.toString();
-        isLoading = false;
-      });
-    }
-  }
-
-  Future<void> _loadMatieres() async {
-    final enseignantIds = enseignants.map((e) => e.id).toList();
-    if (enseignantIds.isEmpty) return;
-
-    final enseignementsSnapshot = await _firestore
-        .collection('enseignements')
-        .where('enseignantId', whereIn: enseignantIds)
+  Future<void> _loadEleveData() async {
+  try {
+    print('🔍 Recherche de l’élève avec utilisateurId = ${widget.utilisateurId}');
+    final eleveSnap = await FirebaseFirestore.instance
+        .collection('eleves')
+        .where('utilisateurId', isEqualTo: widget.utilisateurId)
+        .limit(1)
         .get();
 
-    final matiereIds = enseignementsSnapshot.docs
-        .map((doc) => doc.data()['matiereId'] as String?)
-        .whereType<String>()
-        .toSet()
-        .toList();
+    if (eleveSnap.docs.isNotEmpty) {
+      _eleveId = eleveSnap.docs.first.id;
+      print('✅ Élève trouvé : $_eleveId');
 
-    final matieresSnapshot = await _firestore
-        .collection('matieres')
-        .where(FieldPath.documentId, whereIn: matiereIds)
-        .get();
-
-    final matieresMap = {
-      for (var doc in matieresSnapshot.docs)
-        doc.id: (doc.data()['nom'] ?? 'Inconnu') as String
-    };
-
-    final mapTemp = <String, List<String>>{};
-    for (var doc in enseignementsSnapshot.docs) {
-      final data = doc.data();
-      final enseignantId = data['enseignantId'];
-      final matiereId = data['matiereId'];
-      if (enseignantId == null || matiereId == null) continue;
-
-      final matiereNom = matieresMap[matiereId] ?? 'Inconnu';
-      mapTemp.putIfAbsent(enseignantId, () => []).add(matiereNom);
+      pages[3] = MessagerieElevePage(
+        etablissementId: widget.etablissementId,
+        utilisateurId: widget.utilisateurId,
+        eleveId: _eleveId!,
+      );
+      pages[4] = DevoirElevePage(eleveId: _eleveId!);
+    } else {
     }
 
-    matieresParEnseignant = mapTemp;
+    final userSnap = await FirebaseFirestore.instance
+        .collection('utilisateurs')
+        .doc(widget.utilisateurId)
+        .get();
+
+    if (userSnap.exists) {
+      final data = userSnap.data();
+      if (data != null && data.containsKey('photo')) {
+        final fileId = data['photo'] as String?;
+        if (fileId != null && fileId.isNotEmpty) {
+          _photoUrl = _getAppwriteImageUrl(fileId);
+        } else {
+        }
+      } else {
+      }
+    } else {
+    }
+
+    await _chargerNombreMessagesNonLus();
+    await _chargerNombreNotifsNonLues();
+    await _chargerNombreDevoirsNonLus();
+
+    pages[2] = NotificationsPage();
+
+    setState(() {
+    });
+  } catch (e) {
+    debugPrint("❌ Erreur dans _loadEleveData: $e");
   }
+}
+
+Future<void> _chargerNombreMessagesNonLus() async {
+  if (_eleveId == null) {
+    return;
+  }
+  try {
+    final query = await FirebaseFirestore.instance
+        .collection('messages')
+        .where('recepteurId', isEqualTo: _eleveId)
+        .where('lu', isEqualTo: false)
+        .get();
+    nbMessagesNonLus = query.docs.length;
+  } catch (e) {
+  }
+}
+
+Future<void> _chargerNombreNotifsNonLues() async {
+  if (_eleveId == null) {
+    return;
+  }
+  final query = await FirebaseFirestore.instance
+      .collection('notifications')
+      .where('eleveId', isEqualTo: _eleveId)
+      .where('lu', isEqualTo: false)
+      .get();
+  nbNotifsNonLues = query.docs.length;
+ 
+}
+
+Future<void> _chargerNombreDevoirsNonLus() async {
+  if (_eleveId == null) {
+    return;
+  }
+
+  final query = await FirebaseFirestore.instance
+      .collection('devoirs')
+      .where('eleveIds', arrayContains: _eleveId)
+      .get();
+
+  final nonLus = query.docs.where((doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    final lus = List<String>.from(data['lu'] ?? []);
+    return !lus.contains(_eleveId);
+  }).toList();
+
+  setState(() {
+    nbDevoirsNonLus = nonLus.length;
+  });
+
+ 
+}
+
 
   String? _getAppwriteImageUrl(String? fileId) {
     if (fileId == null || fileId.isEmpty) return null;
@@ -116,166 +177,168 @@ class _MessagerieParentPageState extends State<MessagerieParentPage> {
     return '${appwriteClient.endPoint}/storage/buckets/$bucketId/files/$fileId/view?project=${appwriteClient.config['project']}';
   }
 
+  void _onItemTapped(int index) async {
+    setState(() => _selectedIndex = index);
+
+    if (index == 2 || index == 3 || index == 4) {
+      await _chargerNombreMessagesNonLus();
+      await _chargerNombreNotifsNonLues();
+      await _chargerNombreDevoirsNonLus();
+      setState(() {});
+    }
+  }
+
+  Widget _buildBadge(int count) {
+    if (count == 0) return const SizedBox.shrink();
+    return Positioned(
+      right: -9,
+      top: -9,
+      child: Container(
+        padding: const EdgeInsets.all(4),
+        decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+        constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
+        child: Center(
+          child: Text(
+            '$count',
+            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _iconWithBadge(IconData icon, int count) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [Icon(icon), if (count > 0) _buildBadge(count)],
+    );
+  }
+
+  void _logout() => logoutUser(context);
+
   @override
   Widget build(BuildContext context) {
-    if (isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
-    if (error != null) {
-      return Scaffold(body: Center(child: Text("Erreur : $error")));
-    }
+    final isWideScreen = MediaQuery.of(context).size.width >= 600;
 
     return Scaffold(
-      body: StreamBuilder<QuerySnapshot>(
-        stream: _firestore
-            .collection('messages')
-            .where('participants', arrayContains: widget.parentId)
-            .orderBy('dateEnvoi', descending: true)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            final err = snapshot.error.toString();
-            if (err.contains('FAILED_PRECONDITION') && err.contains('create index')) {
-              final regex = RegExp(r'https:\/\/console\.firebase\.google\.com\S+');
-              final match = regex.firstMatch(err);
-              if (match != null) {
-                final indexUrl = match.group(0);
-                print("📣❗️Firestore nécessite un index pour cette requête !");
-                print("🔗 Cliquez ou copiez ce lien dans votre navigateur pour créer l’index :");
-                print("👉 $indexUrl");
-              } else {
-                print("⚠️ Erreur d'index détectée, mais le lien n'a pas pu être extrait automatiquement.");
-                print("➡️ Vérifie le message d’erreur complet ci-dessous :");
-                print(err);
-              }
-            } else {
-              print('❌ Erreur inconnue dans StreamBuilder : $err');
-            }
-            return Center(child: Text("Erreur : $err"));
-          }
+      drawer: Drawer(
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+        child: ListView(
+          children: [
+            DrawerHeader(
+              decoration: BoxDecoration(color: Colors.blue.shade700),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircleAvatar(
+                    radius: 30,
+                    backgroundImage: _photoUrl != null ? NetworkImage(_photoUrl!) : null,
+                    backgroundColor: Colors.white,
+                    child: _photoUrl == null
+                        ? const Icon(Icons.person, size: 32, color: Colors.grey)
+                        : null,
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Élève',
+                    style: TextStyle(color: Colors.white, fontSize: 18),
+                  ),
+                ],
+              ),
+            ),
+            for (int i = 0; i < pageTitles.length; i++)
+              ListTile(
+                leading: _iconWithBadge(
+                  pageIcons[i],
+                  i == 2
+                    ? nbNotifsNonLues
+                    : i == 3
+                        ? nbMessagesNonLus
+                        : i == 4
+                            ? nbDevoirsNonLus
+                            : 0,
 
-          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-
-          final docs = snapshot.data!.docs;
-          final Map<String, Map<String, dynamic>> dernierMessage = {};
-          final Map<String, int> nbMessagesNonLus = {};
-
-          for (var doc in docs) {
-            final data = doc.data() as Map<String, dynamic>;
-            final emetteurId = data['emetteurId'] ?? '';
-            final recepteurId = data['recepteurId'] ?? '';
-            final date = (data['dateEnvoi'] as Timestamp?)?.toDate();
-            final message = data['contenu'] ?? '';
-            final lu = data['lu'] ?? true;
-
-            final autreId = emetteurId == widget.parentId ? recepteurId : emetteurId;
-
-            print("📨 message: de=$emetteurId à=$recepteurId contenu=$message");
-
-            if (!enseignants.any((e) => e.id == autreId)) continue;
-
-            if (dernierMessage[autreId] == null ||
-                (date != null && date.isAfter(dernierMessage[autreId]?['date'] ?? DateTime(0)))) {
-              dernierMessage[autreId] = {'message': message, 'date': date};
-            }
-
-            if (recepteurId == widget.parentId && !lu) {
-              nbMessagesNonLus[autreId] = (nbMessagesNonLus[autreId] ?? 0) + 1;
-            }
-          }
-
-          final enseignantsTrie = List<EnseignantModele>.from(enseignants);
-          enseignantsTrie.sort((a, b) {
-            final dateA = dernierMessage[a.id]?['date'] ?? DateTime(2000);
-            final dateB = dernierMessage[b.id]?['date'] ?? DateTime(2000);
-            return dateB.compareTo(dateA);
-          });
-
-          if (enseignantsTrie.isEmpty) {
-            return const Center(child: Text("Aucun message trouvé"));
-          }
-
-          return ListView.separated(
-            padding: const EdgeInsets.all(12),
-            itemCount: enseignantsTrie.length,
-            separatorBuilder: (_, __) => const Divider(),
-            itemBuilder: (context, index) {
-              final enseignant = enseignantsTrie[index];
-              final utilisateur = utilisateursMap[enseignant.utilisateurId];
-              if (utilisateur == null) return const SizedBox();
-
-              final matieres = matieresParEnseignant[enseignant.id] ?? [];
-              final photoUrl = _getAppwriteImageUrl(utilisateur.photo);
-              final statutColor = utilisateur.statut ? Colors.green : Colors.grey;
-              final message = dernierMessage[enseignant.id]?['message'] ?? 'Aucun message';
-              final nbNonLus = nbMessagesNonLus[enseignant.id] ?? 0;
-
-              return ListTile(
+                ),
+                title: Text(pageTitles[i]),
                 onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => PageMessageDetailParent(
-                        parentId: widget.parentId,
-                        enseignantId: enseignant.id,
-                        enseignantNom: '${utilisateur.prenom} ${utilisateur.nom}',
-                        enseignantPhotoFileId: utilisateur.photo,
-                      ),
-                    ),
-                  );
+                  Navigator.pop(context);
+                  _onItemTapped(i);
                 },
-                leading: Stack(
-                  children: [
-                    CircleAvatar(
-                      radius: 28,
-                      backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
-                      backgroundColor: Colors.grey.shade300,
-                      child: photoUrl == null
-                          ? const Icon(Icons.person, color: Colors.white)
-                          : null,
-                    ),
-                    Positioned(
-                      right: 0,
-                      bottom: 0,
-                      child: Container(
-                        width: 10,
-                        height: 10,
-                        decoration: BoxDecoration(
-                          color: statutColor,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
-                        ),
-                      ),
-                    )
-                  ],
-                ),
-                title: Text('${utilisateur.prenom} ${utilisateur.nom}',
-                    style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(message, maxLines: 1, overflow: TextOverflow.ellipsis),
-                    if (matieres.isNotEmpty)
-                      Text("Matières : ${matieres.join(', ')}",
-                          style: const TextStyle(fontSize: 12)),
-                  ],
-                ),
-                trailing: nbNonLus > 0
-                    ? CircleAvatar(
-                        radius: 12,
-                        backgroundColor: Colors.red,
-                        child: Text(
-                          '$nbNonLus',
-                          style: const TextStyle(color: Colors.white, fontSize: 12),
-                        ),
-                      )
-                    : const Icon(Icons.chat_bubble_outline),
-              );
-            },
-          );
-        },
+              ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.logout),
+              title: const Text("Déconnexion"),
+              onTap: _logout,
+            ),
+          ],
+        ),
       ),
+      appBar: AppBar(
+        title: Text(pageTitles[_selectedIndex]),
+        actions: [
+          IconButton(
+            icon: _photoUrl != null
+                ? CircleAvatar(radius: 16, backgroundImage: NetworkImage(_photoUrl!))
+                : const Icon(Icons.account_circle),
+            onPressed: () => _onItemTapped(4),
+          ),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: _logout,
+          ),
+        ],
+      ),
+      body: isWideScreen
+          ? Row(
+              children: [
+                NavigationRail(
+                  selectedIndex: _selectedIndex,
+                  onDestinationSelected: _onItemTapped,
+                  labelType: NavigationRailLabelType.all,
+                  destinations: List.generate(pageTitles.length, (i) {
+                    return NavigationRailDestination(
+                      icon: _iconWithBadge(
+                        pageIcons[i],
+                        i == 2
+                          ? nbNotifsNonLues
+                          : i == 3
+                              ? nbMessagesNonLus
+                              : i == 4
+                                  ? nbDevoirsNonLus
+                                  : 0,
+                      ),
+                      label: Text(pageTitles[i]),
+                    );
+                  }),
+                ),
+                const VerticalDivider(thickness: 1, width: 1),
+                Expanded(child: pages[_selectedIndex]),
+              ],
+            )
+          : pages[_selectedIndex],
+      bottomNavigationBar: isWideScreen
+          ? null
+          : BottomNavigationBar(
+              currentIndex: _selectedIndex,
+              onTap: _onItemTapped,
+              type: BottomNavigationBarType.fixed,
+              items: List.generate(pageTitles.length, (i) {
+                return BottomNavigationBarItem(
+                  icon: _iconWithBadge(
+                    pageIcons[i],
+                    i == 2
+                    ? nbNotifsNonLues
+                    : i == 3
+                        ? nbMessagesNonLus
+                        : i == 4
+                            ? nbDevoirsNonLus
+                            : 0,
+                  ),
+                  label: pageTitles[i],
+                );
+              }),
+            ),
     );
   }
 }

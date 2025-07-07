@@ -239,17 +239,17 @@ class _ClasseDetailPageState extends State<ClasseDetailPage> {
             )
           else
             ...elevesDetails.map((eleve) {
-              final photoUrl = _getAppwriteImageUrl(eleve['photo']);
-              return ListTile(
-                leading: (photoUrl != null)
-                    ? CircleAvatar(
-                        backgroundImage: NetworkImage(photoUrl),
-                      )
-                    : const CircleAvatar(child: Icon(Icons.person)),
-                title: Text('${eleve['prenom']} ${eleve['nom']}'),
-                subtitle: Text(eleve['email']),
-              );
-            }).toList(),
+            final photoUrl = _getAppwriteImageUrl(eleve['photo']);
+            return ListTile(
+              leading: (photoUrl != null)
+                  ? CircleAvatar(
+                      backgroundImage: NetworkImage(photoUrl),
+                    )
+                  : const CircleAvatar(child: Icon(Icons.person)),
+              title: Text('${eleve['prenom']} ${eleve['nom']}'),
+              subtitle: Text(eleve['email']),
+            );
+          }),
         ],
       ),
     );
@@ -290,7 +290,7 @@ class _ClasseDetailPageState extends State<ClasseDetailPage> {
                 );
               },
             );
-          }).toList(),
+          }),
         ],
       ),
     );
@@ -319,17 +319,17 @@ class _ClasseDetailPageState extends State<ClasseDetailPage> {
             )
           else
             ...enseignantsDetails.map((enseignant) {
-              final photoUrl = _getAppwriteImageUrl(enseignant['photo']);
-              return ListTile(
-                leading: (photoUrl != null)
-                    ? CircleAvatar(
-                        backgroundImage: NetworkImage(photoUrl),
-                      )
-                    : const CircleAvatar(child: Icon(Icons.person)),
-                title: Text('${enseignant['prenom']} ${enseignant['nom']}'),
-                subtitle: Text(enseignant['email']),
-              );
-            }).toList(),
+            final photoUrl = _getAppwriteImageUrl(enseignant['photo']);
+            return ListTile(
+              leading: (photoUrl != null)
+                  ? CircleAvatar(
+                      backgroundImage: NetworkImage(photoUrl),
+                    )
+                  : const CircleAvatar(child: Icon(Icons.person)),
+              title: Text('${enseignant['prenom']} ${enseignant['nom']}'),
+              subtitle: Text(enseignant['email']),
+            );
+          }),
         ],
       ),
     );
@@ -354,9 +354,13 @@ class _ClasseDetailPageState extends State<ClasseDetailPage> {
     final matieresDisponibles = matieresSnap.docs.where((doc) => !selectedMatieres.contains(doc.id)).toList();
 
     if (matieresDisponibles.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Toutes les matières sont déjà ajoutées")));
-      return;
-    }
+          if (!mounted) return;  // Ajoute cette vérification avant d'utiliser context
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Toutes les matières sont déjà ajoutées"))
+          );
+          return;
+        }
+
 
     await showDialog(
       context: context,
@@ -437,7 +441,7 @@ class _ClasseDetailPageState extends State<ClasseDetailPage> {
               // 6. Construire une map utilisateurId -> UtilisateurModele
               final Map<String, UtilisateurModele> utilisateursMap = {
                 for (var doc in utilisateursSnap.docs)
-                  doc.id: UtilisateurModele.fromMap(doc.data() as Map<String, dynamic>, doc.id),
+                  doc.id: UtilisateurModele.fromMap(doc.data(), doc.id),
               };
 
               // 7. Construire la liste finale enseignantsDisponibles

@@ -3,6 +3,8 @@ import 'package:educonnect/coeur/theme/theme_sombre.dart';
 import 'package:flutter/material.dart';
 import 'package:educonnect/vues/commun/splash_page.dart';
 import 'package:educonnect/routes/routes_application.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+
 
 class Application extends StatelessWidget {
   const Application({super.key});

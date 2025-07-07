@@ -12,7 +12,6 @@ class ServiceAuth {
       );
       return result.user;
     } catch (e) {
-      print('Erreur connexion: $e');
       return null;
     }
   }

@@ -20,6 +20,9 @@ import 'package:educonnect/modules/admin/vues/ajout_eleve.dart';
 import 'package:educonnect/modules/admin/vues/ajouter_eleve.dart';
 import 'package:educonnect/modules/admin/vues/ajouter_parent.dart';
 import 'package:educonnect/modules/admin/vues/ajouter_enseignant.dart';
+import 'package:educonnect/modules/enseignant/vues/devoir_page.dart';
+  import 'package:firebase_auth/firebase_auth.dart';
+
 
 
 
@@ -29,18 +32,30 @@ final Map<String, WidgetBuilder> routes = {
   NomsRoutes.inscription: (context) => const Inscription(),
   NomsRoutes.accueil: (context) => const HomeSuperAdmin(),
   NomsRoutes.forgotPasseword: (context) => Forgotpassword(),
+
   NomsRoutes.homeAdmin: (context) {
     final route = ModalRoute.of(context);
     if (route == null || route.settings.arguments == null) {
-      // Gérer le cas où il n'y a pas d'arguments, par ex. retourner une page d'erreur ou une page par défaut
       return Scaffold(
         body: Center(child: Text("Aucun identifiant d'établissement fourni")),
       );
     }
     final args = route.settings.arguments as Map<String, dynamic>;
     final etablissementId = args['etablissementId'] as String;
-    return HomeAdmin(monIdEtablissement: etablissementId);
+
+    // Récupérer l'utilisateur connecté
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return Scaffold(
+        body: Center(child: Text("Utilisateur non connecté")),
+      );
+    }
+
+    final utilisateurId = user.uid;
+
+    return HomeAdmin(monIdEtablissement: etablissementId, utilisateurId: utilisateurId);
   },
+
 
 
 
@@ -63,6 +78,7 @@ final Map<String, WidgetBuilder> routes = {
       utilisateurId: utilisateurId,
     );
   },
+  
 
   NomsRoutes.homeEleve: (context) {
     final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;

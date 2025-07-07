@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'package:awesome_dialog/awesome_dialog.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -6,13 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:appwrite/appwrite.dart';
-import 'package:appwrite/models.dart'; // pour InputFile
 import 'package:educonnect/main.dart'; // pour appwriteStorage
 
 class AjoutEleveVue extends StatefulWidget {
   final String etablissementId;
 
-  const AjoutEleveVue({Key? key, required this.etablissementId}) : super(key: key);
+  const AjoutEleveVue({super.key, required this.etablissementId});
 
   @override
   State<AjoutEleveVue> createState() => _AjoutEleveVueState();
@@ -137,7 +135,7 @@ class _AjoutEleveVueState extends State<AjoutEleveVue> {
       final result = await appwriteStorage.createFile(
         bucketId: bucketId,
         fileId: ID.unique(),
-        file: InputFile(
+        file: InputFile.fromBytes(
           bytes: fileBytes,
           filename: fileName,
           contentType: 'image/png',

@@ -1,21 +1,26 @@
 import 'package:flutter/material.dart';
-import 'package:educonnect/modules/superadmin/vues/roles_page.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:educonnect/main.dart';
 import 'package:educonnect/modules/admin/vues/home_page.dart';
-import 'package:educonnect/modules/admin/vues/parent_page.dart';
-import 'package:educonnect/modules/admin/vues/annonce_page.dart';
-import 'package:educonnect/modules/admin/vues/argenda_page.dart';
-import 'package:educonnect/modules/admin/vues/classe_page.dart';
-import 'package:educonnect/modules/admin/vues/page_eleve.dart';
-import 'package:educonnect/modules/admin/vues/evernement_page.dart';
-import 'package:educonnect/modules/admin/vues/matiere_page.dart';
-import 'package:educonnect/modules/admin/vues/parametre_page.dart';
-import 'package:educonnect/modules/admin/vues/page_enseigant.dart';
+import 'parent_page.dart';
+import 'classe_page.dart';
+import 'page_eleve.dart';
+import 'evernement_page.dart';
+import 'matiere_page.dart';
+import 'page_enseigant.dart';
 import 'package:educonnect/vues/commun/deconnexion.dart';
+import 'creer_annonce_page.dart';
+import 'profil.dart';
 
 class HomeAdmin extends StatefulWidget {
   final String monIdEtablissement;
+  final String utilisateurId;
 
-  const HomeAdmin({super.key, required this.monIdEtablissement});
+  const HomeAdmin({
+    Key? key,
+    required this.monIdEtablissement,
+    required this.utilisateurId,
+  }) : super(key: key);
 
   @override
   State<HomeAdmin> createState() => _HomeAdminState();
@@ -23,209 +28,209 @@ class HomeAdmin extends StatefulWidget {
 
 class _HomeAdminState extends State<HomeAdmin> {
   int _selectedIndex = 0;
+  String? _photoFileId;
 
   late final List<String> pageTitles;
-  late final List<IconData> fabIcons;
+  late final List<IconData> pageIcons;
   late final List<Widget> pages;
-
-  late final List<int> visibleIndices;
 
   @override
   void initState() {
     super.initState();
+    _chargerPhotoProfil();
 
     pageTitles = const [
-      "Tableau de bord",
+      "Accueil",
       "Enseignant",
       "Classes",
-      "Éleve",
+      "Élève",
       "Parent",
       "Matières",
-      "Agendas",
-      "Événements",
-      "Rôles",
       "Annonces",
-      "Paramètres",
     ];
 
-    fabIcons = const [
+    pageIcons = const [
       Icons.home,
       Icons.badge,
       Icons.class_,
       Icons.person,
       Icons.family_restroom,
       Icons.menu_book,
-      Icons.event,
-      Icons.event_note,
-      Icons.verified_user,
       Icons.campaign,
-      Icons.settings,
     ];
 
     pages = [
-      HomePage(),
+      HomePage(etablissementId: widget.monIdEtablissement, adminId: widget.utilisateurId),
       ListeEnseignants(etablissementId: widget.monIdEtablissement),
       ClassesPage(monIdEtablissement: widget.monIdEtablissement),
       ListeEleves(etablissementId: widget.monIdEtablissement),
       ListeParents(etablissementId: widget.monIdEtablissement),
       MatieresPage(monIdEtablissement: widget.monIdEtablissement),
-      AgendasPage(),
-      EvenementsPage(),
-      RolesPage(),
-      AnnoncesPage(),
-      ParametresPage(),
+      CreerAnnoncePage(etablissementId: widget.monIdEtablissement),
     ];
+  }
 
-    visibleIndices = List.generate(pageTitles.length, (index) => index);
+  Future<void> _chargerPhotoProfil() async {
+    try {
+      final userSnap = await FirebaseFirestore.instance
+          .collection('utilisateurs')
+          .doc(widget.utilisateurId)
+          .get();
+
+      if (userSnap.exists) {
+        final data = userSnap.data();
+        if (data != null && data.containsKey('photoFileId')) {
+          final fileId = data['photoFileId'] as String?;
+          if (fileId != null && fileId.isNotEmpty) {
+            setState(() {
+              _photoFileId = fileId;
+            });
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Erreur chargement photo profil: $e');
+    }
+  }
+
+  String? _getPhotoUrl(String? fileId) {
+    if (fileId == null || fileId.isEmpty) return null;
+    return '${appwriteClient.endPoint}/storage/buckets/6854df330032c7be516c/files/$fileId/view?project=${appwriteClient.config['project']}';
   }
 
   void _onItemTapped(int index) {
-    if (index >= 0 && index < pages.length) {
-      setState(() {
-        _selectedIndex = index;
-      });
-    }
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
+
+  void _logout() {
+    logoutUser(context);
+  }
+
+  Widget _buildDrawer() {
+    final photoUrl = _getPhotoUrl(_photoFileId);
+
+    return Drawer(
+      child: ListView(
+        children: [
+          DrawerHeader(
+            decoration: BoxDecoration(color: Colors.blue.shade700),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircleAvatar(
+                  radius: 30,
+                  backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
+                  backgroundColor: Colors.white,
+                  child: photoUrl == null
+                      ? const Icon(Icons.person, size: 32, color: Colors.grey)
+                      : null,
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Administrateur',
+                  style: TextStyle(color: Colors.white, fontSize: 18),
+                ),
+              ],
+            ),
+          ),
+          for (int i = 0; i < pageTitles.length; i++)
+            ListTile(
+              leading: Icon(pageIcons[i]),
+              title: Text(pageTitles[i]),
+              selected: _selectedIndex == i,
+              onTap: () {
+                Navigator.pop(context);
+                _onItemTapped(i);
+              },
+            ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.logout),
+            title: const Text("Déconnexion"),
+            onTap: _logout,
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final bool isWideScreen = MediaQuery.of(context).size.width >= 600;
-
-    int currentIndex = visibleIndices.indexOf(_selectedIndex);
-    if (currentIndex == -1) {
-      currentIndex = 0;
-      _selectedIndex = visibleIndices[0];
-    }
+    final isWideScreen = MediaQuery.of(context).size.width >= 600;
+    final photoUrl = _getPhotoUrl(_photoFileId);
 
     return Scaffold(
+      drawer: _buildDrawer(),
       appBar: AppBar(
         title: Text(pageTitles[_selectedIndex]),
         actions: [
           IconButton(
-            icon: const Icon(Icons.notifications),
-            onPressed: () {},
-          ),
-          IconButton(
-            icon: const Icon(Icons.account_circle),
-            onPressed: () {},
+            icon: photoUrl != null
+                ? CircleAvatar(radius: 16, backgroundImage: NetworkImage(photoUrl))
+                : const Icon(Icons.account_circle),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ProfilUtilisateurPage(utilisateurId: widget.utilisateurId),
+                ),
+              );
+            },
           ),
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Se déconnecter',
-            onPressed: () {
-              logoutUser(context);
-            },
+            onPressed: _logout,
           ),
         ],
       ),
-      drawer: Drawer(
-        child: ListView(
-          children: [
-            DrawerHeader(
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              child: Text(
-                'Menu Admin',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onPrimary,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            for (int i = 0; i < pageTitles.length; i++)
-              ListTile(
-                leading: Icon(fabIcons[i]),
-                title: Text(pageTitles[i]),
-                selected: _selectedIndex == i,
-                onTap: () {
-                  Navigator.pop(context);
-                  _onItemTapped(i);
-                },
-              ),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.logout),
-              title: const Text('Déconnexion'),
-              onTap: () {},
-            ),
-          ],
-        ),
-      ),
       body: isWideScreen
-          ? Row(
-              children: [
-                // On donne une hauteur fixe égale à la hauteur de l'écran
-                SizedBox(
-                  height: MediaQuery.of(context).size.height,
+    ? Row(
+        children: [
+          SizedBox(
+            height: double.infinity,
+            child: SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 300),
+                child: IntrinsicHeight(
                   child: NavigationRail(
-                    selectedIndex: currentIndex,
-                    onDestinationSelected: (index) {
-                      _onItemTapped(visibleIndices[index]);
-                    },
+                    selectedIndex: _selectedIndex,
+                    onDestinationSelected: _onItemTapped,
                     labelType: NavigationRailLabelType.all,
-                    useIndicator: true,
-                    indicatorShape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    indicatorColor:
-                        Theme.of(context).colorScheme.primary.withOpacity(0.15),
-                    backgroundColor: Theme.of(context).colorScheme.surface,
-                    minWidth: 180,
-                    groupAlignment: -0.5,
-                    destinations: visibleIndices.map((i) {
-                      final selected = i == _selectedIndex;
+                    destinations: List.generate(pageTitles.length, (i) {
                       return NavigationRailDestination(
-                        icon: Icon(
-                          fabIcons[i],
-                          color: selected
-                              ? Theme.of(context).colorScheme.primary
-                              : Colors.grey.shade600,
-                          size: selected ? 24 : 20,
-                        ),
-                        selectedIcon: Icon(
-                          fabIcons[i],
-                          color: Theme.of(context).colorScheme.primary,
-                          size: 26,
-                        ),
-                        label: Text(
-                          pageTitles[i],
-                          style: TextStyle(
-                            fontWeight:
-                                selected ? FontWeight.w600 : FontWeight.w400,
-                            color: selected
-                                ? Theme.of(context).colorScheme.primary
-                                : Colors.grey.shade600,
-                            fontSize: selected ? 14 : 12,
-                          ),
-                        ),
+                        icon: Icon(pageIcons[i]),
+                        label: Text(pageTitles[i]),
                       );
-                    }).toList(),
+                    }),
+                    leading: const SizedBox(height: 25),
+                    trailing: const SizedBox(height: 200), // ✅ espace fixe de 200 pixels
                   ),
                 ),
-                const VerticalDivider(thickness: 1, width: 1),
-                Expanded(
-                  child: Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12),
-                    child: pages[_selectedIndex],
-                  ),
-                ),
-              ],
-            )
-          : pages[_selectedIndex],
+              ),
+            ),
+          ),
+          const VerticalDivider(thickness: 1, width: 1),
+          Expanded(child: pages[_selectedIndex]),
+        ],
+      )
+    : pages[_selectedIndex],
+
+
       bottomNavigationBar: isWideScreen
           ? null
           : BottomNavigationBar(
-              items: visibleIndices
-                  .map((i) => BottomNavigationBarItem(
-                        icon: Icon(fabIcons[i]),
-                        label: pageTitles[i],
-                      ))
-                  .toList(),
-              currentIndex: currentIndex,
-              onTap: (index) => _onItemTapped(visibleIndices[index]),
+              currentIndex: _selectedIndex,
+              onTap: _onItemTapped,
+              type: BottomNavigationBarType.fixed,
+              items: List.generate(pageTitles.length, (i) {
+                return BottomNavigationBarItem(
+                  icon: Icon(pageIcons[i]),
+                  label: pageTitles[i],
+                );
+              }),
             ),
     );
   }

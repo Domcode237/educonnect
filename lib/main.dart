@@ -10,13 +10,13 @@ import 'package:intl/date_symbol_data_local.dart'; // ✅ Pour intl/fr_FR
 import 'package:appwrite/appwrite.dart';
 
 // ➕ Configuration Appwrite
-const String APPWRITE_PROJECT_ID = "6853190c0001df11877c";
-const String APPWRITE_ENDPOINT = "https://cloud.appwrite.io/v1";
+const String appwriteProjectId = "6853190c0001df11877c";
+const String appwriteEndpoint = "https://cloud.appwrite.io/v1";
 
 // ➕ Création des clients Appwrite
 final Client appwriteClient = Client()
-  ..setEndpoint(APPWRITE_ENDPOINT) // Endpoint Appwrite
-  ..setProject(APPWRITE_PROJECT_ID) // ID du projet
+  ..setEndpoint(appwriteEndpoint) // Endpoint Appwrite
+  ..setProject(appwriteProjectId) // ID du projet
   ..setSelfSigned(status: true);     // À false en production
 
 // ➕ Services Appwrite
